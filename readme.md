@@ -1,105 +1,146 @@
-# Daydreams: Technical Guide
+![bg](./bg.png)
 
-## Overview
+# Daydreams
 
-The daydreams provides a blueprint for creating autonomous onchain game agents. These agents interpret onchain game states, use historical data for context, and continually refine their strategies through an evolving chain of thought. By integrating vector databases as a long-term memory store and enabling multi-agent "swarm rooms" for knowledge sharing, the protocol fosters rapid, collective self-improvement among agents.
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
 
-Daydreams is designed to integrate seamlessly with the Dojo onchain game engine. Any Dojo-based game can be connected with minimal configuration, allowing developers to quickly deploy Daydream agents that can effectively engage with their games. Within a month, anyone will be able to launch a Daydream agent to play any Dojo onchain game.
+## 1. Overview
 
-The creators of daydreams are the same team behind the Dojo onchain game engine, Realms (@eternum), Dopewars, and Cartridge.
+Daydreams provides a blueprint for creating autonomous, onchain game agents—programmatic entities that interpret game states, recall historical data, and refine strategies over time. By leveraging vector databases as long-term memory and multi-agent swarm rooms for collective knowledge sharing, Daydreams fosters rapid, continuous improvement among agents.
 
-## Why Games?
+- **Seamless Dojo Integration**: Built to work smoothly with the Dojo onchain game engine.
+- **Low Configuration Overhead**: Minimal steps required to plug into any Dojo-based onchain game.
 
-Games present some of the most challenging environments for autonomous agents, requiring rapid adaptation, strategic foresight, and creative problem-solving. By conquering these complex arenas, agents demonstrate an ability to handle uncertainty, optimize outcomes, and refine strategies in real-time—key capabilities on the path toward more general intelligence. If these high-level skills can be generalized beyond gaming contexts, it moves us significantly closer to AGI.
+## 2. Motivation
 
-## Why Onchain Games?
+### 2.1 Why Games?
 
-Onchain gaming environments introduce an inherent profit motive, transforming strategies from abstract puzzle-solving into economically driven optimization. Agents playing blockchain-based games are directly incentivized to maximize their onchain value, whether in tokens, NFTs, or other digital assets. This measurable, universal "gain function" encourages continuous self-improvement and endows the learning process with real-world stakes. For developers, this ecosystem accelerates adoption by attracting participants eager to leverage advanced agents for tangible gains, ultimately pushing the collective intelligence of these systems forward.
+Games present complex, high-stakes environments that challenge agents to adapt rapidly, plan strategically, and solve problems creatively. Success in these arenas demonstrates a capability for:
 
-## Core Concepts
+- **Uncertainty Handling**: Dealing with incomplete or changing information.
+- **Optimal Decision-Making**: Balancing long-term goals with short-term opportunities.
+- **Real-Time Adaptation**: Responding to adversarial or evolving game states.
+
+If such skills prove extensible beyond games, it brings us closer to Artificial General Intelligence (AGI).
+
+### 2.2 Why Onchain Games?
+
+Onchain games embed a profit motive in the environment—agents are economically incentivized to maximize onchain rewards like tokens, NFTs, or other assets. This introduces a real-world gain function that drives agent improvement.
+
+Advantages:
+
+- **Direct Economic Feedback**: Every action has a measurable onchain outcome.
+- **Transparent State**: Game data can be reliably queried via standardized, open interfaces.
+- **Community Adoption**: A financial reward structure encourages fast adoption and fosters network effects.
+
+## 3. Core Concepts
 
 ### Onchain Games as Standardized Environments
 
-- **Standardization**: Onchain games provide uniform, RPC-based interfaces (e.g., gRPC) that present game states, actions, and player data in a consistent JSON format.
-- **Uniformity of Actions**: With all moves encoded in a standard schema, agents can easily interpret and generate valid game actions without custom integrations.
+- **Uniform JSON/RPC Schemas**: Onchain games expose consistent endpoints detailing states, actions, and player data.
+- **Low Integration Overhead**: Agents can parse and generate valid actions using these standardized schemas.
 
 ### Agent Self-Improvement and Incentives
 
-- **Economic Incentives**: Onchain games tie actions directly to tangible financial outcomes (e.g., tokens, NFTs), motivating agents to consistently enhance their strategies.
-- **Adaptive Strategies**: Agents draw on past successes—stored as vector embeddings—to inform new decisions, continually improving to maximize expected value.
+- **Economic Drivers**: Tie agent success directly to assets (tokens/NFTs). This fosters relentless optimization.
+- **Adaptive Learning**: Agents store past successes as vector embeddings, guiding future decisions toward higher expected value.
 
-### Dynamic, Context-Aware Reasoning (Chain of Thought)
+### Chain of Thought (CoT)
 
-- **Contextual Inputs**: Agents consider the current game state, historical performance data, and previously learned tactics.
-- **On-Demand Queries**: Agents can retrieve additional insights at runtime by querying SQL-like databases or other game APIs.
-- **Memory Retrieval**: Using vector database embeddings, agents recall similar past scenarios and outcomes, guiding more informed and effective decision-making.
+- **Contextual Reasoning**: Agents synthesize current state, historical data, and known tactics to produce well-informed moves.
+- **Dynamic Queries**: Agents fetch additional insights from SQL-like databases or other APIs on demand.
+- **Memory Retrieval**: Vector embeddings help recall similar scenarios to refine strategies.
 
-## Protocol Design
+## 4. Protocol Design
 
-### Open and Modular Architecture
+### 4.1 Modular Architecture
 
-#### Context Layers:
+The Daydreams protocol is intentionally open and modular, enabling easy customization and extension. You can integrate any or all components depending on your use case.
 
-##### Game Context:
+#### Context Layers
 
-- Current game state (entities, resources, turn counters)
-- Provided by onchain queries (RPC calls to smart contracts or sidechain services)
+##### Game Context
 
-##### SQL Context:
+- Represents the real-time onchain state: entities, resources, turn counters, etc.
+- Retrieved via RPC calls to smart contracts or sidechain services.
 
-- Historical gameplay logs stored in a relational database
-- May include tables like moves, outcomes, player_stats, and world_events
-- Agents query these tables to find patterns and retrieve valuable historical insights
+##### SQL Context
 
-##### Execution Context:
+- Historical gameplay logs stored in a relational database (e.g., moves, outcomes, player_stats, world_events).
+- Agents query these tables for patterns and data-driven insights.
 
-- Details of how to interact with the blockchain:
-  - RPC endpoints or gRPC services
-  - Transaction formatting (e.g., JSON-RPC payload)
-  - Gas and fee considerations
-- Agents rely on this context to execute moves safely and efficiently
+##### Execution Context
 
-### Chain of Thought (CoT) Kernel:
+- Provides transactional details on how to interact with the blockchain.
+- Includes RPC endpoints, transaction formatting, and gas/fee considerations.
+- Ensures agent actions can be reliably and safely executed onchain.
 
-A reasoning component that:
+#### Chain of Thought (CoT) Kernel
 
-- Integrates all contexts and produces next-step strategies
-- Dynamically queries vector DBs and SQL stores
-- Evaluates possible actions and decides on the best move to commit
+- The reasoning engine that integrates data from all context layers.
+- Dynamically queries SQL and vector databases to augment decision-making.
+- Evaluates possible moves and commits the best action.
 
-### Embedded Vector Database for Memory:
+#### Embedded Vector Database (Long-Term Memory)
 
-#### Storing Past Chains:
+- **Storage**: Each completed CoT is embedded into a vector representing the agent's reasoning steps, decisions, and outcomes.
+- **Retrieval**: Similarity-based lookups provide relevant historical insights for new situations.
+- **Feedback Loops**: Successful outcomes incrementally boost the weight of their associated embeddings.
 
-- Each completed Chain of Thought (CoT) sequence is embedded into a vector and stored
-- This embedding captures state, decisions, and outcomes
+#### Swarm Rooms (Multi-Agent Collaboration)
 
-#### Retrieval and Similarity Matching:
+- **Knowledge Sharing**: Agents publish their successful CoTs in a shared "swarm room."
+- **Federated Memory Updates**: Other agents can subscribe and incorporate these embeddings into their own vector DBs, accelerating group learning.
+- **Privacy Controls**: Agents may choose to share only certain data or employ cryptographic proofs to validate the authenticity of shared embeddings. Eg, agents will sign their messages and will be able to rank each others CoT
 
-- When encountering a new game state, the CoT kernel retrieves the most similar past CoT embeddings
-- Similarity search helps the agent recall tactics that previously led to favorable outcomes
+#### Integration with External Agents
 
-#### Feedback Loops:
+- **Plug-and-Play**: Daydreams can be extended and integrated with any agent infrastructure (e.g., Eliza, Rig).
 
-- After executing an action, the agent retrieves the results and associates them with the relevant CoT entry
-- Positive outcomes increase the weight of that embedding in future searches
+## 5. Example Agent Flow
 
-### Swarm Rooms for Collaborative Learning:
+### Initialization
 
-#### Multi-Agent Knowledge Sharing:
+- A Daydream agent boots up, loading its vector DB and connecting to the game's SQL logs.
 
-- Set up "swarm rooms" where multiple agents can publish their successful CoT embeddings
+### Acquire Context
 
-#### Federated Memory Updates:
+- Agent queries the Game Context (onchain state) to get the current turn number, player holdings, and any relevant events.
+- Agent optionally queries the SQL Context to retrieve historical moves/outcomes.
 
-- Other agents subscribe to these rooms, retrieving successful strategy embeddings to enhance their own vector DBs
-- This collective intelligence accelerates group learning and performance improvements
+### Inference (CoT Kernel)
 
-#### Privacy and Access Control:
+- Agent compares the current game state against similar historical embeddings in the vector DB.
+- Agent formulates a plan using the retrieved best practices, factoring in any real-time changes or newly discovered strategies.
 
-- Agents can be configured to share only certain embeddings (e.g., non-proprietary data)
-- Use cryptographic means to prove trustworthiness of shared CoTs
+### Action Execution
 
-## Integration with External Agents
+- Agent formats a transaction or game action payload according to the Execution Context.
+- Action is sent onchain (or to the relevant sidechain/RPC endpoint).
 
-Daydreams can be added to any existing Agent infrastructure like Eliza or Rig.
+### Post-Action Feedback
+
+- The agent records the outcome of its move (e.g., resource gain/loss, updated game state).
+- This new CoT embedding is stored in the vector DB and, if successful, can be published to a swarm room (telegram or elsewhere)
+
+### Swarm Collaboration
+
+- Other agents subscribe, retrieving the newly shared CoT embedding and integrating it into their memory store, thus spreading successful strategies network-wide.
+
+## 6. Roadmap
+
+### Public Beta for Daydream Agents
+
+- Launch a user-friendly interface for deploying new agents in any Dojo-based game.
+
+### Expanded Swarm Room Features
+
+- Introduce enhanced privacy settings and advanced scoring systems for shared CoTs.
+
+### Cross-Game Generalization
+
+- Explore how well agent embeddings transfer between different game genres.
+
+### Beyond Games
+
+- Investigate applying the same architecture to non-gaming, onchain tasks (e.g., supply chain optimization, automated governance proposals).
