@@ -4,6 +4,8 @@
 
 > ⚠️ **Warning**: Daydreams is currently in pre-alpha stage. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
 
+See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
+
 ## 1. Overview
 
 Daydreams provides a blueprint for creating autonomous, onchain game agents—programmatic entities that interpret game states, recall historical data, and refine strategies over time. By leveraging vector databases as long-term memory and multi-agent swarm rooms for collective knowledge sharing, Daydreams fosters rapid, continuous improvement among agents.
@@ -97,7 +99,7 @@ The Daydreams protocol is intentionally open and modular, enabling easy customiz
 
 - **Plug-and-Play**: Daydreams can be extended and integrated with any agent infrastructure (e.g., Eliza, Rig).
 
-## 5. Example Agent Flow
+## 5. Example Daydream Flow
 
 ### Initialization
 
