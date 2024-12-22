@@ -15,7 +15,7 @@ Daydreams provides a blueprint for creating autonomous, onchain game agents—pr
 
 ### 1.1 Dojo Integration
 
-Daydream uses a MCP like protocol for exposing context natively to the agent. Developers only have to implement game guides and the agent will be able to query the game state and execute actions accordingly.
+Daydream uses a [MCP](https://github.com/modelcontextprotocol) for exposing context natively to the agent. Developers only have to implement game guides and the agent will be able to query the game state and execute actions accordingly.
 
 ### 1.2 Event Driven CoT
 
