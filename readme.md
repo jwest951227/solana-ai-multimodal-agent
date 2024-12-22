@@ -93,6 +93,8 @@ The Daydreams protocol is intentionally open and modular, enabling easy customiz
 - Dynamically queries SQL and vector databases to augment decision-making.
 - Evaluates possible moves and commits the best action.
 
+![bg](./chain.png)
+
 #### Embedded Vector Database (Long-Term Memory)
 
 - **Storage**: Each completed CoT is embedded into a vector representing the agent's reasoning steps, decisions, and outcomes.
