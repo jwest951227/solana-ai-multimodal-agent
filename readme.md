@@ -2,7 +2,7 @@
 
 # Daydreams
 
-> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
 
@@ -12,6 +12,16 @@ Daydreams provides a blueprint for creating autonomous, onchain game agents—pr
 
 - **Seamless Dojo Integration**: Built to work smoothly with the Dojo onchain game engine.
 - **Low Configuration Overhead**: Minimal steps required to plug into any Dojo-based onchain game.
+
+### 1.1 Dojo Integration
+
+Daydream uses a MCP like protocol for exposing context natively to the agent. Developers only have to implement game guides and the agent will be able to query the game state and execute actions accordingly.
+
+### 1.2 Event Driven CoT
+
+Daydreams uses an event driven CoT kernel where all thoughts processed.
+
+![bg](./daydream.png)
 
 ## 2. Motivation
 
@@ -128,21 +138,3 @@ The Daydreams protocol is intentionally open and modular, enabling easy customiz
 ### Swarm Collaboration
 
 - Other agents subscribe, retrieving the newly shared CoT embedding and integrating it into their memory store, thus spreading successful strategies network-wide.
-
-## 6. Roadmap
-
-### Public Beta for Daydream Agents
-
-- Launch a user-friendly interface for deploying new agents in any Dojo-based game.
-
-### Expanded Swarm Room Features
-
-- Introduce enhanced privacy settings and advanced scoring systems for shared CoTs.
-
-### Cross-Game Generalization
-
-- Explore how well agent embeddings transfer between different game genres.
-
-### Beyond Games
-
-- Investigate applying the same architecture to non-gaming, onchain tasks (e.g., supply chain optimization, automated governance proposals).
