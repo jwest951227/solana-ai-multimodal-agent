@@ -2,7 +2,7 @@
 
 # Daydreams
 
-> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated. This a broad project spamming many repos within dojo.
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
 
