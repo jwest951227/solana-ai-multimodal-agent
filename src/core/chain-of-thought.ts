@@ -8,7 +8,7 @@ import type {
 import type { CoTStep } from "./validation";
 import { queryValidator, transactionValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
-import { fetchData } from "./providers";
+import { executeStarknetTransaction, fetchData } from "./providers";
 
 /**
  * A robust Chain of Thought manager specifically designed
@@ -241,7 +241,7 @@ export class ChainOfThought {
    * Execute a "transaction" that can modify the chain of thought, the context,
    * or even the game state. The specifics are up to your design.
    */
-  private runTransaction(transaction: CoTTransaction): string {
+  private async runTransaction(transaction: CoTTransaction): Promise<string> {
     this.logger.debug("runTransaction", "Running transaction", { transaction });
 
     // Add step describing the transaction
@@ -253,7 +253,17 @@ export class ChainOfThought {
       }
     );
 
-    return "Transaction executed successfully";
+    const result = await executeStarknetTransaction(transaction);
+
+    const resultStr = `Transaction executed successfully: ${JSON.stringify(
+      result,
+      null,
+      2
+    )}`;
+
+    this.addStep(resultStr, ["transaction-result"]);
+
+    return resultStr;
   }
 
   /**

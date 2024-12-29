@@ -69,7 +69,7 @@ export const getStarknetAccount = () => {
   );
 };
 
-export const callEternum = async (call: Call): Promise<any> => {
+export const executeStarknetTransaction = async (call: Call): Promise<any> => {
   try {
     call.calldata = CallData.compile(call.calldata || []);
 
