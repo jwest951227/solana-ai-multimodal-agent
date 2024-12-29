@@ -10,6 +10,12 @@ import { LogLevel } from "./core/logger";
 import { LLMClient } from "./core/llm-client";
 import { defaultCharacter } from "./core/character";
 import { Consciousness } from "./core/consciousness";
+import { ChainOfThought } from "./core/chain-of-thought";
+import {
+  AVAILABLE_QUERIES,
+  PROVIDER_EXAMPLES,
+  WORLD_GUIDE,
+} from "./core/contexts";
 
 async function main() {
   // Initialize VectorDB first
@@ -31,66 +37,76 @@ async function main() {
     apiKey: env.ANTHROPIC_API_KEY,
   });
 
-  const intentExtractor = new LLMIntentExtractor(llmClient);
-
-  // Initialize processor with dependencies
-  const processor = new EventProcessor(
-    vectorDb,
-    intentExtractor,
-    llmClient,
-    actionRegistry,
-    defaultCharacter,
-    LogLevel.INFO
-  );
-
-  // Initialize Core with all dependencies including VectorDB
-  const core = new Core(
-    processor,
-    roomManager,
-    actionRegistry,
-    intentExtractor,
-    vectorDb,
-    {
-      logging: {
-        level: LogLevel.DEBUG,
-        enableColors: true,
-        enableTimestamp: true,
-      },
-    }
-  );
-
-  // Initialize consciousness after core is set up
-  const consciousness = new Consciousness(core, llmClient, roomManager, {
-    intervalMs: 60000, // Think every minute
-    minConfidence: 0.7,
-    logLevel: LogLevel.DEBUG,
+  const chainOfThought = new ChainOfThought(llmClient, {
+    worldState: WORLD_GUIDE,
+    queriesAvailable: AVAILABLE_QUERIES,
+    availableActions: PROVIDER_EXAMPLES,
   });
 
-  // Initialize clients with core
-  const twitterClient = new TwitterClient(
-    "twitter",
-    {
-      username: env.TWITTER_USERNAME,
-      password: env.TWITTER_PASSWORD,
-      email: env.TWITTER_EMAIL,
-    },
-    core
-  );
+  const result = await chainOfThought.solveQuery("Build me a Farm?");
 
-  // Register clients with core
-  core.registerClient(twitterClient);
+  // console.log(result);
 
-  // Start consciousness
-  await consciousness.start();
+  // const intentExtractor = new LLMIntentExtractor(llmClient);
 
-  // Start listening
-  await twitterClient.listen();
+  // // Initialize processor with dependencies
+  // const processor = new EventProcessor(
+  //   vectorDb,
+  //   intentExtractor,
+  //   llmClient,
+  //   actionRegistry,
+  //   defaultCharacter,
+  //   LogLevel.INFO
+  // );
+
+  // // Initialize Core with all dependencies including VectorDB
+  // const core = new Core(
+  //   processor,
+  //   roomManager,
+  //   actionRegistry,
+  //   intentExtractor,
+  //   vectorDb,
+  //   {
+  //     logging: {
+  //       level: LogLevel.DEBUG,
+  //       enableColors: true,
+  //       enableTimestamp: true,
+  //     },
+  //   }
+  // );
+
+  // // Initialize consciousness after core is set up
+  // const consciousness = new Consciousness(core, llmClient, roomManager, {
+  //   intervalMs: 60000, // Think every minute
+  //   minConfidence: 0.7,
+  //   logLevel: LogLevel.DEBUG,
+  // });
+
+  // // Initialize clients with core
+  // const twitterClient = new TwitterClient(
+  //   "twitter",
+  //   {
+  //     username: env.TWITTER_USERNAME,
+  //     password: env.TWITTER_PASSWORD,
+  //     email: env.TWITTER_EMAIL,
+  //   },
+  //   core
+  // );
+
+  // // Register clients with core
+  // core.registerClient(twitterClient);
+
+  // // Start consciousness
+  // await consciousness.start();
+
+  // // Start listening
+  // await twitterClient.listen();
 
   // Handle shutdown
   process.on("SIGINT", async () => {
     console.log("Shutting down...");
-    await consciousness.stop();
-    await twitterClient.stop();
+    // await consciousness.stop();
+    // await twitterClient.stop();
     process.exit(0);
   });
 }

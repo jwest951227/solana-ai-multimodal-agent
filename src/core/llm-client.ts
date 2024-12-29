@@ -188,7 +188,7 @@ export class LLMClient {
   ): Promise<string | StructuredAnalysis> {
     const {
       system,
-      temperature = 0.7,
+      temperature = 0.3,
       maxTokens = 1500,
       formatResponse = false,
     } = options;

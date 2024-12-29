@@ -6,7 +6,8 @@
     "@types/bun": "latest"
   },
   "scripts": {
-    "start": "bun run src/main.ts"
+    "start": "bun run src/main.ts",
+    "test": "vitest"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -14,10 +15,12 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
     "agent-twitter-client": "^0.0.16",
+    "ajv": "^8.17.1",
     "chromadb": "^1.9.4",
     "chromadb-default-embed": "^2.13.2",
     "openai": "^4.76.0",
     "uuid": "^11.0.3",
+    "vitest": "^2.1.8",
     "zod": "^3.23.8"
   }
 }
