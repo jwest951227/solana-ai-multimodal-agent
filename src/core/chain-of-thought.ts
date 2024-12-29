@@ -8,6 +8,7 @@ import type {
 import type { CoTStep } from "./validation";
 import { queryValidator, transactionValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
+import { fetchData } from "./providers";
 
 /**
  * A robust Chain of Thought manager specifically designed
@@ -209,10 +210,6 @@ export class ChainOfThought {
     }
   }
 
-  /**
-   * A placeholder example of how you might fetch data from SQL.
-   * In reality, you'd provide your DB or ORM client to do the query.
-   */
   private async graphqlFetchAction(
     payload?: Record<string, any>
   ): Promise<string> {
@@ -222,6 +219,8 @@ export class ChainOfThought {
 
     // Example of expected fields in the payload
     const { query, variables } = payload || {};
+
+    const result = await fetchData(query, variables);
     this.addStep(
       `Performing GraphQL fetch with query: ${query}`,
       ["graphql-fetch"],
@@ -230,16 +229,12 @@ export class ChainOfThought {
       }
     );
 
-    // Suppose you have a DB client:
-    // const result = await db.execute(query, variables);
+    const resultStr =
+      `query: ` + query + `\n\nresult: ` + JSON.stringify(result, null, 2);
 
-    // For now, just add an example step to represent the retrieved data
-    // this.addStep(`SQL result: ${JSON.stringify(result)}`, ['sql-result']);
-    this.addStep(`GraphQL result: [Fake DB result for demonstration]`, [
-      "graphql-result",
-    ]);
+    this.addStep(resultStr, ["graphql-result"]);
 
-    return "GraphQL result: [Fake DB result for demonstration]";
+    return resultStr;
   }
 
   /**
@@ -489,7 +484,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     return responseStr;
   }
 
-  public async solveQuery(
+  public async think(
     userQuery: string,
     maxIterations: number = 10
   ): Promise<void> {

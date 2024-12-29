@@ -37,13 +37,13 @@ async function main() {
     apiKey: env.ANTHROPIC_API_KEY,
   });
 
-  const chainOfThought = new ChainOfThought(llmClient, {
+  const dreams = new ChainOfThought(llmClient, {
     worldState: WORLD_GUIDE,
     queriesAvailable: AVAILABLE_QUERIES,
     availableActions: PROVIDER_EXAMPLES,
   });
 
-  const result = await chainOfThought.solveQuery("Build me a Farm?");
+  await dreams.think("Build me a Farm?");
 
   // console.log(result);
 
