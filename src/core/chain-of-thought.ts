@@ -483,7 +483,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     }
 
     this.logger.debug("sendToLLM", "Received LLM response", {
-      response: responseStr,
+      response: JSON.parse(responseStr),
     });
 
     return responseStr;
