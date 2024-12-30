@@ -43,6 +43,51 @@ async function main() {
     availableActions: PROVIDER_EXAMPLES,
   });
 
+  // Subscribe to events
+  dreams.on("step", (step) => {
+    console.log("\n🤔 New thought step:", {
+      content: step.content,
+      tags: step.tags,
+    });
+  });
+
+  dreams.on("action:start", (action) => {
+    console.log("\n🎬 Starting action:", {
+      type: action.type,
+      payload: action.payload,
+    });
+  });
+
+  dreams.on("action:complete", ({ action, result }) => {
+    console.log("\n✅ Action complete:", {
+      type: action.type,
+      result,
+    });
+  });
+
+  dreams.on("action:error", ({ action, error }) => {
+    console.log("\n❌ Action failed:", {
+      type: action.type,
+      error,
+    });
+  });
+
+  dreams.on("think:start", ({ query }) => {
+    console.log("\n🧠 Starting to think about:", query);
+  });
+
+  dreams.on("think:complete", ({ query }) => {
+    console.log("\n🎉 Finished thinking about:", query);
+  });
+
+  dreams.on("think:timeout", ({ query }) => {
+    console.log("\n⏰ Thinking timed out for:", query);
+  });
+
+  dreams.on("think:error", ({ query, error }) => {
+    console.log("\n💥 Error while thinking about:", query, error);
+  });
+
   await dreams.think("Build me a Farm?");
 
   // console.log(result);

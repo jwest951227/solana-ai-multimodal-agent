@@ -9,12 +9,13 @@ import type { CoTStep } from "./validation";
 import { queryValidator, transactionValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
+import { EventEmitter } from "events";
 
 /**
  * A robust Chain of Thought manager specifically designed
  * for game-oriented operations.
  */
-export class ChainOfThought {
+export class ChainOfThought extends EventEmitter {
   private steps: CoTStep[];
   private context: ChainOfThoughtContext;
   private snapshots: ChainOfThoughtContext[]; // Optional for storing context snapshots
@@ -28,6 +29,7 @@ export class ChainOfThought {
     private llmClient: LLMClient,
     initialContext?: ChainOfThoughtContext
   ) {
+    super(); // Initialize EventEmitter
     this.steps = [];
     this.context = initialContext ?? {
       worldState: "",
@@ -36,7 +38,7 @@ export class ChainOfThought {
     };
     this.snapshots = [];
     this.logger = new Logger({
-      level: LogLevel.DEBUG,
+      level: LogLevel.ERROR,
       enableColors: true,
       enableTimestamp: true,
     });
@@ -63,6 +65,7 @@ export class ChainOfThought {
       meta,
     };
     this.steps.push(newStep);
+    this.emit("step", newStep); // Emit step event
     return newStep;
   }
 
@@ -176,6 +179,7 @@ export class ChainOfThought {
    */
   public async executeAction(action: CoTAction): Promise<string> {
     this.logger.debug("executeAction", "Executing action", { action });
+    this.emit("action:start", action); // Emit action start
 
     // Add validation for transaction if it's that type
     if (action.type === "EXECUTE_TRANSACTION") {
@@ -188,20 +192,26 @@ export class ChainOfThought {
     }
 
     try {
-      switch (action.type) {
-        case "GRAPHQL_FETCH":
-          return await this.graphqlFetchAction(action.payload);
+      const result = await (async () => {
+        switch (action.type) {
+          case "GRAPHQL_FETCH":
+            return await this.graphqlFetchAction(action.payload);
 
-        case "EXECUTE_TRANSACTION":
-          return this.runTransaction(action.payload as CoTTransaction);
+          case "EXECUTE_TRANSACTION":
+            return this.runTransaction(action.payload as CoTTransaction);
 
-        default:
-          this.logger.warn("executeAction", "Unknown action type", {
-            actionType: action.type,
-          });
-          return "Unknown action type: " + action.type;
-      }
+          default:
+            this.logger.warn("executeAction", "Unknown action type", {
+              actionType: action.type,
+            });
+            return "Unknown action type: " + action.type;
+        }
+      })();
+
+      this.emit("action:complete", { action, result }); // Emit successful completion
+      return result;
     } catch (error) {
+      this.emit("action:error", { action, error }); // Emit error
       this.logger.error("executeAction", "Action execution failed", {
         error: error instanceof Error ? error.message : String(error),
         action,
@@ -228,7 +238,6 @@ export class ChainOfThought {
         variables,
       }
     );
-    console.log("result", result);
 
     const resultStr =
       `query: ` + query + `\n\nresult: ` + JSON.stringify(result, null, 2);
@@ -350,9 +359,7 @@ export class ChainOfThought {
 
         // 3. Extract the plan and add it as a step
         if (llmResponse.plan) {
-          this.addStep(`<LLM_PLAN> ${llmResponse.plan} </LLM_PLAN>`, [
-            "llm-plan",
-          ]);
+          this.addStep(`${llmResponse.plan}`, ["llm-plan"]);
         }
 
         // If we get here, everything worked
@@ -524,45 +531,50 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     userQuery: string,
     maxIterations: number = 10
   ): Promise<void> {
-    this.logger.debug("solveQuery", "Starting query solution", {
-      userQuery,
-      maxIterations,
-    });
+    this.emit("think:start", { query: userQuery });
 
-    // Initialize with user query
-    this.addStep(`Initial Query: ${userQuery}`, ["user-query"]);
-
-    let currentIteration = 0;
-    let isComplete = false;
-
-    let steps: CoTAction[] = [];
-    let currentStepIndex = 0;
-
-    while (!isComplete && currentIteration < maxIterations) {
-      this.logger.debug("solveQuery", "Starting iteration", {
-        currentIteration,
+    try {
+      this.logger.debug("solveQuery", "Starting query solution", {
+        userQuery,
+        maxIterations,
       });
 
-      const llmResponse = await this.callLLMAndProcessResponse();
+      // Initialize with user query
+      this.addStep(`Initial Query: ${userQuery}`, ["user-query"]);
 
-      // Insert new actions after current position
-      steps.splice(currentStepIndex, 0, ...llmResponse.actions);
+      let currentIteration = 0;
+      let isComplete = false;
 
-      if (Array.isArray(steps)) {
-        for (const action of steps.slice(currentStepIndex)) {
-          const result = await this.executeAction(action);
-          currentStepIndex++;
+      let steps: CoTAction[] = [];
+      let currentStepIndex = 0;
 
-          // After each action, check with LLM if we should continue
-          const completionCheck = await this.llmClient.analyze(
-            JSON.stringify({
-              query: userQuery,
-              currentSteps: this.steps,
-              context: this.context,
-              lastAction: action.toString() + " RESULT:" + result,
-            }),
-            {
-              system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved based on the provided context.
+      while (!isComplete && currentIteration < maxIterations) {
+        this.logger.debug("solveQuery", "Starting iteration", {
+          currentIteration,
+        });
+
+        const llmResponse = await this.callLLMAndProcessResponse();
+
+        // Insert new actions after current position
+        steps.splice(currentStepIndex, 0, ...llmResponse.actions);
+
+        if (Array.isArray(steps)) {
+          // Only process one action at a time, allowing for plan changes
+          const action = steps[currentStepIndex];
+          if (action) {
+            const result = await this.executeAction(action);
+            currentStepIndex++;
+
+            // After each action, check with LLM if we should continue
+            const completionCheck = await this.llmClient.analyze(
+              JSON.stringify({
+                query: userQuery,
+                currentSteps: this.steps,
+                context: this.context,
+                lastAction: action.toString() + " RESULT:" + result,
+              }),
+              {
+                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved based on the provided context.
 
 Analyze using Chain of Verification:
 1. The original query/goal - Verify the exact requirements
@@ -601,57 +613,79 @@ Only return a JSON object with this exact structure:
 Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
 
 `,
-            }
-          );
+              }
+            );
 
-          this.logger.debug("solveQuery", "Completion check", {
-            completionCheck,
-          });
+            try {
+              const completion = JSON.parse(completionCheck.toString());
+              isComplete = completion.complete;
 
-          try {
-            const completion = JSON.parse(completionCheck.toString());
-            isComplete = completion.complete;
+              if (completion.newActions) {
+                // Insert new actions before any remaining unprocessed steps
+                steps.splice(currentStepIndex, 0, ...completion.newActions);
+              }
 
-            if (completion.newActions) {
-              // Insert new actions after current position
-              steps.splice(currentStepIndex, 0, ...completion.newActions);
-            }
-
-            console.log("steps", steps);
-
-            if (isComplete) {
-              this.addStep(`Goal achieved: ${completion.reason}`, [
-                "completion",
-              ]);
-              return;
-            }
-
-            if (!completion.shouldContinue) {
-              // Need new plan from LLM
+              if (isComplete) {
+                this.addStep(`Goal achieved: ${completion.reason}`, [
+                  "completion",
+                ]);
+                this.emit("think:complete", { query: userQuery });
+                return; // Exit immediately when complete
+              } else {
+                this.addStep(
+                  `Action completed, continuing execution: ${completion.reason}`,
+                  ["continuation"]
+                );
+              }
+            } catch (error) {
+              this.logger.error(
+                "solveQuery",
+                "Error parsing completion check",
+                {
+                  error: error instanceof Error ? error.message : String(error),
+                  completionCheck,
+                }
+              );
               break;
             }
-
-            this.addStep(
-              `Action completed, continuing execution: ${completion.reason}`,
-              ["continuation"]
-            );
-          } catch (error) {
-            this.logger.error("solveQuery", "Error parsing completion check", {
-              error: error instanceof Error ? error.message : String(error),
-              completionCheck,
-            });
-            break;
           }
         }
+
+        currentIteration++;
       }
 
-      currentIteration++;
-    }
-
-    if (currentIteration >= maxIterations) {
-      const error = `Failed to solve query "${userQuery}" within ${maxIterations} iterations`;
-      this.logger.error("solveQuery", error);
-      throw new Error(error);
+      if (currentIteration >= maxIterations) {
+        const error = `Failed to solve query "${userQuery}" within ${maxIterations} iterations`;
+        this.logger.error("solveQuery", error);
+        this.emit("think:timeout", { query: userQuery }); // Emit timeout
+      }
+    } catch (error) {
+      this.emit("think:error", { query: userQuery, error }); // Emit error
+      throw error;
     }
   }
+}
+
+// Add type definitions for the events
+export interface ChainOfThoughtEvents {
+  step: (step: CoTStep) => void;
+  "action:start": (action: CoTAction) => void;
+  "action:complete": (data: { action: CoTAction; result: string }) => void;
+  "action:error": (data: { action: CoTAction; error: Error | unknown }) => void;
+  "think:start": (data: { query: string }) => void;
+  "think:complete": (data: { query: string }) => void;
+  "think:timeout": (data: { query: string }) => void;
+  "think:error": (data: { query: string; error: Error | unknown }) => void;
+}
+
+// Add type safety to event emitter
+export declare interface ChainOfThought {
+  on<K extends keyof ChainOfThoughtEvents>(
+    event: K,
+    listener: ChainOfThoughtEvents[K]
+  ): this;
+  emit<K extends keyof ChainOfThoughtEvents>(
+    event: K,
+    ...args: Parameters<ChainOfThoughtEvents[K]>
+  ): boolean;
 }
