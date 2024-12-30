@@ -228,6 +228,7 @@ export class ChainOfThought {
         variables,
       }
     );
+    console.log("result", result);
 
     const resultStr =
       `query: ` + query + `\n\nresult: ` + JSON.stringify(result, null, 2);
@@ -402,6 +403,7 @@ You are a Chain of Thought reasoning system. Think through this problem step by 
 4. Validate that each step directly contributes to the goal
 5. Ensure the sequence is complete and sufficient to achieve the goal
 
+
 Return a precise sequence of steps that achieves the given goal. Each step must be:
 - Actionable and concrete
 - Directly contributing to the goal
@@ -439,6 +441,7 @@ ${this.context.availableActions}
 1. Resource costs must be verified before action execution
 2. Building requirements must be confirmed before construction
 3. Entity existence must be validated before interaction
+4. If the required amounts are not available, end the sequence.
 </REQUIRED_VALIDATIONS>
 
 <OUTPUT_FORMAT>
@@ -532,19 +535,23 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     let currentIteration = 0;
     let isComplete = false;
 
+    let steps: CoTAction[] = [];
+    let currentStepIndex = 0;
+
     while (!isComplete && currentIteration < maxIterations) {
       this.logger.debug("solveQuery", "Starting iteration", {
         currentIteration,
       });
 
-      // Get next steps from LLM
       const llmResponse = await this.callLLMAndProcessResponse();
 
-      // Process each action one at a time
-      if (Array.isArray(llmResponse.actions)) {
-        for (const action of llmResponse.actions) {
-          // Execute the action
+      // Insert new actions after current position
+      steps.splice(currentStepIndex, 0, ...llmResponse.actions);
+
+      if (Array.isArray(steps)) {
+        for (const action of steps.slice(currentStepIndex)) {
           const result = await this.executeAction(action);
+          currentStepIndex++;
 
           // After each action, check with LLM if we should continue
           const completionCheck = await this.llmClient.analyze(
@@ -568,6 +575,8 @@ For each verification:
 - Validate the execution was proper
 - Confirm expected postconditions
 - Look for any edge cases or errors
+- If the required amounts are not available, end the sequence.
+- If you need to add another action that is not in the current list, return array of actions
 
 Determine through verification:
 - Has the goal been fully achieved with all checks passing? (complete)
@@ -576,15 +585,21 @@ Determine through verification:
 
 Only return a JSON object with this exact structure:
 
+<JSON_STRUCTURE>
 {
   "complete": boolean,
   "reason": "detailed explanation of verification results",
   "shouldContinue": boolean
+  "newActions":         [{
+          type: "GRAPHQL_FETCH",
+          payload: {
+            query: "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } } }",
+          },
+        }],
 }
-
+</JSON_STRUCTURE>
 Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
 
-<NOTE></NOTE>
 `,
             }
           );
@@ -596,6 +611,13 @@ Do not include any text outside the JSON object. Do not include backticks, markd
           try {
             const completion = JSON.parse(completionCheck.toString());
             isComplete = completion.complete;
+
+            if (completion.newActions) {
+              // Insert new actions after current position
+              steps.splice(currentStepIndex, 0, ...completion.newActions);
+            }
+
+            console.log("steps", steps);
 
             if (isComplete) {
               this.addStep(`Goal achieved: ${completion.reason}`, [
