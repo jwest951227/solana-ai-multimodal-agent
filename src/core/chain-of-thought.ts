@@ -390,37 +390,37 @@ export class ChainOfThought {
 
     return `
 
-Last steps:
+<LAST_STEPS>
 ${lastSteps}
+</LAST_STEPS>
 
-Current context (JSON):
 ${contextSummary}
 
-World state:
 ${this.context.worldState}
 
-Queries available:
 ${this.context.queriesAvailable}
 
-Available actions:
 ${this.context.availableActions}
 
-OBJECTIVE:
+<OBJECTIVE>
 Return a precise sequence of steps to achieve the given goal. Each step must be actionable and directly contribute to the goal. Only work towards the goal you have been given.
+</OBJECTIVE>
 
-STEP VALIDATION RULES:
+<STEP_VALIDATION_RULES>
 1. Each step must have a clear, measurable outcome
 2. Maximum 10 steps per sequence
 3. Steps must be non-redundant unless explicitly required
 4. All dynamic values (marked with <>) must be replaced with actual values
 5. Use queries for information gathering, transactions for actions only
+</STEP_VALIDATION_RULES>
 
-REQUIRED VALIDATIONS:
+<REQUIRED_VALIDATIONS>
 1. Resource costs must be verified before action execution
 2. Building requirements must be confirmed before construction
 3. Entity existence must be validated before interaction
+</REQUIRED_VALIDATIONS>
 
-OUTPUT FORMAT:
+<OUTPUT_FORMAT>
 Return a JSON array where each step contains:
 - plan: A short explanation of what you will do
 - meta: A metadata object with requirements for the step. Find this in the context.
@@ -457,6 +457,8 @@ Provide a JSON response with the following structure:
         },
   ]
 }
+
+</OUTPUT_FORMAT>
 
 Do NOT include any additional keys outside of "plan" and "actions".
 Make sure the JSON is valid. No extra text outside of the JSON.
@@ -532,28 +534,37 @@ Make sure the JSON is valid. No extra text outside of the JSON.
               lastAction: action.toString() + " RESULT:" + result,
             }),
             {
-              system: `You are a goal completion analyzer. Your task is to carefully evaluate whether a goal has been achieved based on the provided context.
+              system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved based on the provided context.
 
-Analyze:
-1. The original query/goal
-2. All steps taken so far
-3. The current context
-4. The result of the last action
+Analyze using Chain of Verification:
+1. The original query/goal - Verify the exact requirements
+2. All steps taken so far - Verify each step was completed successfully
+3. The current context - Verify the current state matches expectations
+4. The result of the last action - Verify the outcome was correct
 
-Determine:
-- Has the goal been fully achieved? (complete)
-- What is the specific reason for your determination? (reason) 
-- Should the system continue with the current plan or get a new one? (shouldContinue)
+For each verification:
+- Check preconditions were met
+- Validate the execution was proper
+- Confirm expected postconditions
+- Look for any edge cases or errors
+
+Determine through verification:
+- Has the goal been fully achieved with all checks passing? (complete)
+- What specific verifications led to your determination? (reason)
+- Should the system continue the current plan or get a new one based on verification results? (shouldContinue)
 
 Only return a JSON object with this exact structure:
 
 {
   "complete": boolean,
-  "reason": "detailed explanation of your determination",
+  "reason": "detailed explanation of verification results",
   "shouldContinue": boolean
 }
 
-Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.`,
+Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
+
+<NOTE></NOTE>
+`,
             }
           );
 
