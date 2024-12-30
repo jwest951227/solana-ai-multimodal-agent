@@ -574,7 +574,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
                 lastAction: action.toString() + " RESULT:" + result,
               }),
               {
-                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved based on the provided context.
+                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context.
 
 Analyze using Chain of Verification:
 1. The original query/goal - Verify the exact requirements
@@ -582,37 +582,32 @@ Analyze using Chain of Verification:
 3. The current context - Verify the current state matches expectations
 4. The result of the last action - Verify the outcome was correct
 
+IMPORTANT RESOURCE RULES:
+- If a required resource has 0 balance, mark the goal as complete with failure reason
+- Do not suggest alternative approaches if core resources are missing
+- Do not continue planning if prerequisites cannot be met
+
 For each verification:
 - Check preconditions were met
 - Validate the execution was proper
 - Confirm expected postconditions
 - Look for any edge cases or errors
-- If the required amounts are not available, end the sequence.
-- If you need to add another action that is not in the current list, return array of actions
 
 Determine through verification:
-- Has the goal been fully achieved with all checks passing? (complete)
+- Has the goal been achieved OR determined to be impossible? (complete)
 - What specific verifications led to your determination? (reason)
-- Should the system continue the current plan or get a new one based on verification results? (shouldContinue)
+- Should the system continue only if resources are available? (shouldContinue)
 
 Only return a JSON object with this exact structure:
 
-<JSON_STRUCTURE>
 {
   "complete": boolean,
   "reason": "detailed explanation of verification results",
-  "shouldContinue": boolean
-  "newActions":         [{
-          type: "GRAPHQL_FETCH",
-          payload: {
-            query: "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } } }",
-          },
-        }],
+  "shouldContinue": boolean,
+  "newActions": [] // Only include if continuing and resources are available
 }
-</JSON_STRUCTURE>
-Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
 
-`,
+Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.`,
               }
             );
 
@@ -625,12 +620,15 @@ Do not include any text outside the JSON object. Do not include backticks, markd
                 steps.splice(currentStepIndex, 0, ...completion.newActions);
               }
 
-              if (isComplete) {
-                this.addStep(`Goal achieved: ${completion.reason}`, [
-                  "completion",
-                ]);
+              if (isComplete || !completion.shouldContinue) {
+                this.addStep(
+                  `Goal ${isComplete ? "achieved" : "failed"}: ${
+                    completion.reason
+                  }`,
+                  ["completion"]
+                );
                 this.emit("think:complete", { query: userQuery });
-                return; // Exit immediately when complete
+                return; // Exit immediately when complete or should not continue
               } else {
                 this.addStep(
                   `Action completed, continuing execution: ${completion.reason}`,
