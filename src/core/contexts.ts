@@ -421,7 +421,7 @@ export const PROVIDER_EXAMPLES = `
         - expires_at: When the trade expires
       </PARAMETERS>
       <EXAMPLE>
-        <JSON>
+     
           {
             "contractAddress": "<eternum-trade_systems>",
             "entrypoint": "create_order",
@@ -437,7 +437,7 @@ export const PROVIDER_EXAMPLES = `
               1704067200   
             ]
           }
-        </JSON>
+  
       </EXAMPLE>
     </CREATE_ORDER>
 

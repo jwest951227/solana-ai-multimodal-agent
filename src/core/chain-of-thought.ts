@@ -349,7 +349,9 @@ export class ChainOfThought {
 
         // 3. Extract the plan and add it as a step
         if (llmResponse.plan) {
-          this.addStep(`LLM Plan: ${llmResponse.plan}`, ["llm-plan"]);
+          this.addStep(`<LLM_PLAN> ${llmResponse.plan} </LLM_PLAN>`, [
+            "llm-plan",
+          ]);
         }
 
         // If we get here, everything worked
@@ -390,11 +392,32 @@ export class ChainOfThought {
 
     return `
 
+
+    <OBJECTIVE>
+You are a Chain of Thought reasoning system. Think through this problem step by step:
+
+1. First, carefully analyze the goal and break it down into logical components
+2. For each component, determine the precise actions and information needed
+3. Consider dependencies and prerequisites between steps
+4. Validate that each step directly contributes to the goal
+5. Ensure the sequence is complete and sufficient to achieve the goal
+
+Return a precise sequence of steps that achieves the given goal. Each step must be:
+- Actionable and concrete
+- Directly contributing to the goal
+- Properly ordered in the sequence
+- Validated against requirements
+
+Focus solely on the goal you have been given. Do not add extra steps or deviate from the objective.
+</OBJECTIVE>
+
 <LAST_STEPS>
 ${lastSteps}
 </LAST_STEPS>
 
+<CONTEXT_SUMMARY>
 ${contextSummary}
+</CONTEXT_SUMMARY>
 
 ${this.context.worldState}
 
@@ -402,9 +425,7 @@ ${this.context.queriesAvailable}
 
 ${this.context.availableActions}
 
-<OBJECTIVE>
-Return a precise sequence of steps to achieve the given goal. Each step must be actionable and directly contribute to the goal. Only work towards the goal you have been given.
-</OBJECTIVE>
+
 
 <STEP_VALIDATION_RULES>
 1. Each step must have a clear, measurable outcome
