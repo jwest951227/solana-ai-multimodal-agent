@@ -10,6 +10,8 @@ import { queryValidator, transactionValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
+import * as fs from "fs";
+import * as path from "path";
 
 /**
  * A robust Chain of Thought manager specifically designed
@@ -20,6 +22,7 @@ export class ChainOfThought extends EventEmitter {
   private context: ChainOfThoughtContext;
   private snapshots: ChainOfThoughtContext[]; // Optional for storing context snapshots
   private logger: Logger;
+  private contextLogPath: string;
 
   /**
    * Constructor initializes the ChainOfThought with an optional initial context.
@@ -42,6 +45,30 @@ export class ChainOfThought extends EventEmitter {
       enableColors: true,
       enableTimestamp: true,
     });
+
+    this.contextLogPath = path.join(process.cwd(), "logs", "context.log");
+    // Ensure logs directory exists
+    const logsDir = path.dirname(this.contextLogPath);
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+    // Log initial context
+    this.logContext("INITIAL_CONTEXT");
+  }
+
+  private logContext(trigger: string): void {
+    const timestamp = new Date().toISOString();
+    const logEntry = `\n[${timestamp}] Context changed by: ${trigger}\n${JSON.stringify(
+      this.context,
+      null,
+      2
+    )}\n${"=".repeat(80)}\n`;
+
+    try {
+      fs.appendFileSync(this.contextLogPath, logEntry);
+    } catch (error) {
+      this.logger.error("logContext", "Failed to write context log", { error });
+    }
   }
 
   /**
@@ -153,6 +180,8 @@ export class ChainOfThought extends EventEmitter {
       ...this.context,
       ...newContext,
     };
+
+    this.logContext("MERGE_CONTEXT");
   }
 
   /**
@@ -161,9 +190,10 @@ export class ChainOfThought extends EventEmitter {
   public snapshotContext(): void {
     this.logger.debug("snapshotContext", "Creating context snapshot");
 
-    // Deep clone if necessary
     const snapshot = JSON.parse(JSON.stringify(this.context));
     this.snapshots.push(snapshot);
+
+    this.logContext("SNAPSHOT_CREATED");
   }
 
   /**
@@ -179,7 +209,7 @@ export class ChainOfThought extends EventEmitter {
    */
   public async executeAction(action: CoTAction): Promise<string> {
     this.logger.debug("executeAction", "Executing action", { action });
-    this.emit("action:start", action); // Emit action start
+    this.emit("action:start", action);
 
     // Add validation for transaction if it's that type
     if (action.type === "EXECUTE_TRANSACTION") {
@@ -208,10 +238,21 @@ export class ChainOfThought extends EventEmitter {
         }
       })();
 
-      this.emit("action:complete", { action, result }); // Emit successful completion
+      // Store the result in context
+      this.mergeContext({
+        actionHistory: {
+          ...(this.context.actionHistory || {}),
+          [Date.now()]: {
+            action,
+            result,
+          },
+        },
+      });
+
+      this.emit("action:complete", { action, result });
       return result;
     } catch (error) {
-      this.emit("action:error", { action, error }); // Emit error
+      this.emit("action:error", { action, error });
       this.logger.error("executeAction", "Action execution failed", {
         error: error instanceof Error ? error.message : String(error),
         action,
@@ -387,7 +428,7 @@ export class ChainOfThought extends EventEmitter {
    * Build a prompt that instructs the LLM to produce structured data.
    * You can adapt the instructions, tone, or style as needed.
    */
-  private buildLLMPrompt(): string {
+  private buildLLMPrompt(tags: Record<string, string> = {}): string {
     this.logger.debug("buildLLMPrompt", "Building LLM prompt");
 
     // You can control how many steps or which steps to send
@@ -396,11 +437,33 @@ export class ChainOfThought extends EventEmitter {
       .slice(-5)
       .map((s) => s.content)
       .join("\n");
-    const contextSummary = JSON.stringify(this.context, null, 2);
 
-    return `
+    // Replace any {{tag}} with the provided value or leave unchanged
+    const injectTags = (text: string): string => {
+      let result = text;
+      const tagMatches = text.match(/\{\{(\w+)\}\}/g) || [];
+      const uniqueTags = [...new Set(tagMatches)];
 
+      uniqueTags.forEach((tag) => {
+        const tagName = tag.slice(2, -2);
+        const values: string[] = [];
+        if (tags[tagName]) {
+          // Find all occurrences and collect values
+          tagMatches.forEach((match) => {
+            if (match === tag) {
+              values.push(tags[tagName]);
+            }
+          });
+          // Replace with concatenated values if multiple occurrences
+          result = result.replace(new RegExp(tag, "g"), values.join("\n"));
+        }
+      });
 
+      return result;
+    };
+
+    const prompt = `
+    <global_context>
     <OBJECTIVE>
 You are a Chain of Thought reasoning system. Think through this problem step by step:
 
@@ -409,7 +472,6 @@ You are a Chain of Thought reasoning system. Think through this problem step by 
 3. Consider dependencies and prerequisites between steps
 4. Validate that each step directly contributes to the goal
 5. Ensure the sequence is complete and sufficient to achieve the goal
-
 
 Return a precise sequence of steps that achieves the given goal. Each step must be:
 - Actionable and concrete
@@ -425,16 +487,14 @@ ${lastSteps}
 </LAST_STEPS>
 
 <CONTEXT_SUMMARY>
-${contextSummary}
-</CONTEXT_SUMMARY>
-
 ${this.context.worldState}
 
 ${this.context.queriesAvailable}
 
 ${this.context.availableActions}
 
-
+{{additional_context}}
+</CONTEXT_SUMMARY>
 
 <STEP_VALIDATION_RULES>
 1. Each step must have a clear, measurable outcome
@@ -442,6 +502,7 @@ ${this.context.availableActions}
 3. Steps must be non-redundant unless explicitly required
 4. All dynamic values (marked with <>) must be replaced with actual values
 5. Use queries for information gathering, transactions for actions only
+{{custom_validation_rules}}
 </STEP_VALIDATION_RULES>
 
 <REQUIRED_VALIDATIONS>
@@ -449,6 +510,7 @@ ${this.context.availableActions}
 2. Building requirements must be confirmed before construction
 3. Entity existence must be validated before interaction
 4. If the required amounts are not available, end the sequence.
+{{additional_validations}}
 </REQUIRED_VALIDATIONS>
 
 <OUTPUT_FORMAT>
@@ -457,9 +519,9 @@ Return a JSON array where each step contains:
 - meta: A metadata object with requirements for the step. Find this in the context.
 - actions: A list of actions to be executed. You can either use GRAPHQL_FETCH or EXECUTE_TRANSACTION. You must only use these.
 
+{{output_format_details}}
 
 Provide a JSON response with the following structure:
-
 
 {
   "plan": "A short explanation of what you will do",
@@ -493,7 +555,11 @@ Provide a JSON response with the following structure:
 
 Do NOT include any additional keys outside of "plan" and "actions".
 Make sure the JSON is valid. No extra text outside of the JSON.
+
+</global_context>
 `;
+
+    return injectTags(prompt);
   }
 
   /**
@@ -565,26 +631,30 @@ Make sure the JSON is valid. No extra text outside of the JSON.
             const result = await this.executeAction(action);
             currentStepIndex++;
 
+            const updateContext = this.buildLLMPrompt({
+              result,
+            });
+
             // After each action, check with LLM if we should continue
             const completionCheck = await this.llmClient.analyze(
-              JSON.stringify({
-                query: userQuery,
-                currentSteps: this.steps,
-                context: this.context,
-                lastAction: action.toString() + " RESULT:" + result,
-              }),
-              {
-                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context.
+              `
+              ${updateContext}
 
-Analyze using Chain of Verification:
+             ${JSON.stringify({
+               query: userQuery,
+               currentSteps: this.steps,
+               lastAction: action.toString() + " RESULT:" + result,
+             })},
+
+              Analyze using Chain of Verification:
 1. The original query/goal - Verify the exact requirements
 2. All steps taken so far - Verify each step was completed successfully
 3. The current context - Verify the current state matches expectations
 4. The result of the last action - Verify the outcome was correct
+5. Values will always be in hexadecimal so convert them to decimal for verification
 
 IMPORTANT RESOURCE RULES:
 - If a required resource has 0 balance, mark the goal as complete with failure reason
-- Do not suggest alternative approaches if core resources are missing
 - Do not continue planning if prerequisites cannot be met
 
 For each verification:
@@ -604,10 +674,14 @@ Only return a JSON object with this exact structure:
   "complete": boolean,
   "reason": "detailed explanation of verification results",
   "shouldContinue": boolean,
-  "newActions": [] // Only include if continuing and resources are available
+  "newActions": [] // Only include if continuing and resources are available and search <global_context> for more details
 }
 
-Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.`,
+Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
+                `,
+              {
+                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context.
+`,
               }
             );
 

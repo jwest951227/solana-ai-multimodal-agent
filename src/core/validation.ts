@@ -20,6 +20,12 @@ export interface ChainOfThoughtContext {
   worldState: string;
   queriesAvailable: string;
   availableActions: string;
+  actionHistory?: {
+    [timestamp: string]: {
+      action: CoTAction;
+      result: string;
+    };
+  };
 }
 
 /**

@@ -1,5 +1,5 @@
 {
-  "name": "event-driven-agent",
+  "name": "daydreams",
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
