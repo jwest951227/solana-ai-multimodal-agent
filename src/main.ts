@@ -107,7 +107,6 @@ async function main() {
     console.log("\n💥 Error while thinking about:", query, error);
   });
 
-  // Replace the dreams.think test with interactive CLI
   while (true) {
     console.log("\n🤖 Enter your query (or 'exit' to quit):");
     const userInput = await getCliInput("> ");
@@ -123,15 +122,6 @@ async function main() {
       console.error("Error processing query:", error);
     }
   }
-
-  // Remove or comment out the test system prompt
-  // const testSystemPrompt = {
-  //   type: "SYSTEM_PROMPT",
-  //   payload: {
-  //     prompt: "Would you like to continue with this action? (yes/no)",
-  //   },
-  // };
-  // await dreams.executeAction(testSystemPrompt);
 
   // Handle shutdown
   process.on("SIGINT", async () => {
