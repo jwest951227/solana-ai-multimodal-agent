@@ -1,14 +1,15 @@
 import Ajv from "ajv";
+import type { Step } from "./chain-of-thought";
 
 /**
  * Represents a single "step" in the Chain of Thought.
  */
 export interface CoTStep {
-  id: string; // Unique ID for referencing the step
-  content: string; // Textual explanation, reasoning, or context
-  timestamp: number; // When this step was added
-  tags?: string[]; // Categorization of the step
-  meta?: Record<string, any>; // Arbitrary metadata for additional info
+  id: string;
+  content: string;
+  timestamp: number;
+  tags?: string[];
+  meta?: Record<string, any>;
 }
 
 /**
@@ -20,12 +21,13 @@ export interface ChainOfThoughtContext {
   worldState: string;
   queriesAvailable: string;
   availableActions: string;
-  actionHistory?: {
-    [timestamp: string]: {
+  actionHistory?: Record<
+    number,
+    {
       action: CoTAction;
       result: string;
-    };
-  };
+    }
+  >;
 }
 
 /**
@@ -39,21 +41,25 @@ export type CoTActionType = "GRAPHQL_FETCH" | "EXECUTE_TRANSACTION";
  * Extend this to fit your actual logic.
  */
 export interface CoTAction {
-  type: CoTActionType;
-  payload?: Record<string, any>;
+  type: "GRAPHQL_FETCH" | "EXECUTE_TRANSACTION";
+  payload: Record<string, any>;
 }
 
 export interface LLMStructuredResponse {
-  plan: string; // A textual plan or reasoning
-  metadata?: Record<string, any>;
-  actions: CoTAction[]; // A list of actions to be executed
-  isComplete: boolean; // Whether the task is complete
+  plan?: string;
+  meta?: {
+    requirements?: {
+      resources?: Record<string, number>;
+      population?: number;
+    };
+  };
+  actions: CoTAction[];
 }
 
 export interface CoTTransaction {
-  contractAddress: string; // Contract address to call
-  entrypoint: string; // Contract entrypoint/function name
-  calldata: (string | number | Array<number>)[]; // Arguments to pass to the contract
+  contractAddress: string;
+  entrypoint: string;
+  calldata: any[];
 }
 
 const queryValidatorSchema = {
@@ -96,13 +102,19 @@ const queryValidatorSchema = {
   additionalProperties: false,
 };
 
-export const queryValidator = (data: any) => {
-  const validator = new Ajv().compile(queryValidatorSchema);
-  const isValid = validator(data);
-  if (!isValid) {
-    console.error("Query validation failed:", validator.errors);
+export const queryValidator = (
+  response: any
+): response is LLMStructuredResponse => {
+  if (!response || typeof response !== "object") return false;
+  if (!Array.isArray(response.actions)) return false;
+
+  for (const action of response.actions) {
+    if (!action.type || !action.payload) return false;
+    if (!["GRAPHQL_FETCH", "EXECUTE_TRANSACTION"].includes(action.type))
+      return false;
   }
-  return isValid;
+
+  return true;
 };
 
 const transactionValidatorSchema = {
@@ -116,7 +128,12 @@ const transactionValidatorSchema = {
   additionalProperties: false,
 };
 
-export const transactionValidator = (data: any) => {
-  const validator = new Ajv().compile(transactionValidatorSchema);
-  return validator(data);
+export const transactionValidator = (
+  transaction: any
+): transaction is CoTTransaction => {
+  if (!transaction || typeof transaction !== "object") return false;
+  if (typeof transaction.contractAddress !== "string") return false;
+  if (typeof transaction.entrypoint !== "string") return false;
+  if (!Array.isArray(transaction.calldata)) return false;
+  return true;
 };

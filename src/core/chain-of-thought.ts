@@ -5,7 +5,6 @@ import type {
   CoTTransaction,
   LLMStructuredResponse,
 } from "./validation";
-import type { CoTStep } from "./validation";
 import { queryValidator, transactionValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
@@ -13,12 +12,117 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 
+// Add new step types at the top
+type StepType = "action" | "planning" | "system" | "task";
+
+interface BaseStep {
+  id: string;
+  type: StepType;
+  content: string;
+  timestamp: number;
+  tags?: string[];
+  meta?: Record<string, any>;
+}
+
+interface ActionStep extends BaseStep {
+  type: "action";
+  content: string;
+  toolCall?: {
+    name: string;
+    arguments: any;
+    id: string;
+  };
+  error?: Error;
+  observations?: string;
+  actionOutput?: any;
+  duration?: number;
+}
+
+interface PlanningStep extends BaseStep {
+  type: "planning";
+  plan: string;
+  facts: string;
+}
+
+interface SystemStep extends BaseStep {
+  type: "system";
+  systemPrompt: string;
+}
+
+interface TaskStep extends BaseStep {
+  type: "task";
+  task: string;
+}
+
+export type Step = ActionStep | PlanningStep | SystemStep | TaskStep;
+
+// Add StepManager class
+class StepManager {
+  private steps: Step[] = [];
+  private stepIds: Set<string> = new Set();
+
+  constructor() {
+    this.steps = [];
+    this.stepIds = new Set();
+  }
+
+  public addStep(step: Step): Step {
+    if (this.stepIds.has(step.id)) {
+      throw new Error(`Step with ID ${step.id} already exists`);
+    }
+
+    this.steps.push(step);
+    this.stepIds.add(step.id);
+    return step;
+  }
+
+  public getSteps(): Step[] {
+    return this.steps;
+  }
+
+  public getStepById(id: string): Step | undefined {
+    return this.steps.find((s) => s.id === id);
+  }
+
+  public updateStep(id: string, updates: Partial<Step>): void {
+    const index = this.steps.findIndex((s) => s.id === id);
+    if (index === -1) {
+      throw new Error(`Step with ID ${id} not found`);
+    }
+
+    const currentStep = this.steps[index];
+    const updatedStep = {
+      ...currentStep,
+      ...updates,
+      type: currentStep.type, // Preserve the original step type
+      timestamp: Date.now(), // Update timestamp on changes
+    } as Step;
+
+    this.steps[index] = updatedStep;
+  }
+
+  public removeStep(id: string): void {
+    const index = this.steps.findIndex((s) => s.id === id);
+    if (index === -1) {
+      throw new Error(`Step with ID ${id} not found`);
+    }
+
+    this.steps.splice(index, 1);
+    this.stepIds.delete(id);
+  }
+
+  public clear(): void {
+    this.steps = [];
+    this.stepIds.clear();
+  }
+}
+
 /**
  * A robust Chain of Thought manager specifically designed
  * for game-oriented operations.
  */
 export class ChainOfThought extends EventEmitter {
-  private steps: CoTStep[];
+  private stepManager: StepManager;
   private context: ChainOfThoughtContext;
   private snapshots: ChainOfThoughtContext[]; // Optional for storing context snapshots
   private logger: Logger;
@@ -33,7 +137,7 @@ export class ChainOfThought extends EventEmitter {
     initialContext?: ChainOfThoughtContext
   ) {
     super(); // Initialize EventEmitter
-    this.steps = [];
+    this.stepManager = new StepManager();
     this.context = initialContext ?? {
       worldState: "",
       queriesAvailable: "",
@@ -74,26 +178,28 @@ export class ChainOfThought extends EventEmitter {
   /**
    * Add a new step to the end of the chain.
    * @param content Reasoning or textual content of the step.
+   * @param type The type of the step.
    * @param tags Optional tags or categories to label the step.
    * @param meta Additional metadata to store in the step.
    */
   public addStep(
     content: string,
+    type: StepType = "action",
     tags?: string[],
     meta?: Record<string, any>
-  ): CoTStep {
-    this.logger.debug("addStep", "Adding new step", { content, tags, meta });
-
-    const newStep: CoTStep = {
+  ): Step {
+    const newStep: Step = {
       id: this.generateUniqueId(),
+      type,
       content,
       timestamp: Date.now(),
       tags,
       meta,
-    };
-    this.steps.push(newStep);
-    this.emit("step", newStep); // Emit step event
-    return newStep;
+    } as Step;
+
+    const step = this.stepManager.addStep(newStep);
+    this.emit("step", step);
+    return step;
   }
 
   /**
@@ -109,7 +215,7 @@ export class ChainOfThought extends EventEmitter {
     content: string,
     tags?: string[],
     meta?: Record<string, any>
-  ): CoTStep {
+  ): Step {
     this.logger.debug("insertStep", "Inserting step at index", {
       index,
       content,
@@ -117,21 +223,24 @@ export class ChainOfThought extends EventEmitter {
       meta,
     });
 
-    if (index < 0 || index > this.steps.length) {
-      const error = `Invalid index: ${index}. Index must be between 0 and ${this.steps.length}`;
+    if (index < 0 || index > this.stepManager.getSteps().length) {
+      const error = `Invalid index: ${index}. Index must be between 0 and ${
+        this.stepManager.getSteps().length
+      }`;
       this.logger.error("insertStep", error);
       throw new Error(error);
     }
 
-    const newStep: CoTStep = {
+    const newStep: Step = {
       id: this.generateUniqueId(),
+      type: "action",
       content,
       timestamp: Date.now(),
       tags,
       meta,
-    };
+    } as Step;
 
-    this.steps.splice(index, 0, newStep);
+    this.stepManager.getSteps().splice(index, 0, newStep);
     return newStep;
   }
 
@@ -146,20 +255,22 @@ export class ChainOfThought extends EventEmitter {
       newContent,
     });
 
-    const step = this.steps.find((s) => s.id === stepId);
-    if (step) {
-      step.content = newContent;
-      step.timestamp = Date.now();
+    const step = this.stepManager.getStepById(stepId);
+    if (step && "content" in step) {
+      (step as { content: string; timestamp: number }).content = newContent;
+      (step as { content: string; timestamp: number }).timestamp = Date.now();
     } else {
-      this.logger.warn("updateStepContent", "Step not found", { stepId });
+      this.logger.warn("updateStepContent", "Step not found or invalid type", {
+        stepId,
+      });
     }
   }
 
   /**
    * Retrieve the entire chain of steps.
    */
-  public getSteps(): CoTStep[] {
-    return this.steps;
+  public getSteps(): Step[] {
+    return this.stepManager.getSteps();
   }
 
   /**
@@ -211,15 +322,13 @@ export class ChainOfThought extends EventEmitter {
     this.logger.debug("executeAction", "Executing action", { action });
     this.emit("action:start", action);
 
-    // Add validation for transaction if it's that type
-    if (action.type === "EXECUTE_TRANSACTION") {
-      const transaction = action.payload;
-      if (transaction && !transactionValidator(transaction)) {
-        const error = "Invalid transaction format in action payload";
-        this.logger.error("executeAction", error, { transaction });
-        throw new Error(error);
-      }
-    }
+    // Add action step at the start
+    const actionStep = this.addStep(
+      `Executing action: ${action.type}`,
+      "action",
+      ["action-execution"],
+      { action }
+    );
 
     try {
       const result = await (async () => {
@@ -238,6 +347,12 @@ export class ChainOfThought extends EventEmitter {
         }
       })();
 
+      // Update the action step with the result
+      this.stepManager.updateStep(actionStep.id, {
+        content: `Action completed: ${result}`,
+        meta: { ...actionStep.meta, result },
+      });
+
       // Store the result in context
       this.mergeContext({
         actionHistory: {
@@ -252,11 +367,13 @@ export class ChainOfThought extends EventEmitter {
       this.emit("action:complete", { action, result });
       return result;
     } catch (error) {
-      this.emit("action:error", { action, error });
-      this.logger.error("executeAction", "Action execution failed", {
-        error: error instanceof Error ? error.message : String(error),
-        action,
+      // Update the action step with the error
+      this.stepManager.updateStep(actionStep.id, {
+        content: `Action failed: ${error}`,
+        meta: { ...actionStep.meta, error },
       });
+
+      this.emit("action:error", { action, error });
       throw error;
     }
   }
@@ -272,18 +389,9 @@ export class ChainOfThought extends EventEmitter {
     const { query, variables } = payload || {};
 
     const result = await fetchData(query, variables);
-    this.addStep(
-      `Performing GraphQL fetch with query: ${query}`,
-      ["graphql-fetch"],
-      {
-        variables,
-      }
-    );
 
     const resultStr =
       `query: ` + query + `\n\nresult: ` + JSON.stringify(result, null, 2);
-
-    this.addStep(resultStr, ["graphql-result"]);
 
     return resultStr;
   }
@@ -296,13 +404,6 @@ export class ChainOfThought extends EventEmitter {
     this.logger.debug("runTransaction", "Running transaction", { transaction });
 
     // Add step describing the transaction
-    this.addStep(
-      `Running transaction: ${transaction.contractAddress}`,
-      ["transaction"],
-      {
-        transactionData: transaction.calldata,
-      }
-    );
 
     const result = await executeStarknetTransaction(transaction);
 
@@ -312,7 +413,15 @@ export class ChainOfThought extends EventEmitter {
       2
     )}`;
 
-    this.addStep(resultStr, ["transaction-result"]);
+    this.addStep(
+      `Running transaction: ${transaction.contractAddress}`,
+      "action",
+      ["transaction"],
+      {
+        transactionData: transaction.calldata,
+        result: resultStr,
+      }
+    );
 
     return resultStr;
   }
@@ -334,13 +443,15 @@ export class ChainOfThought extends EventEmitter {
   public removeStep(stepId: string): void {
     this.logger.debug("removeStep", "Removing step", { stepId });
 
-    const index = this.steps.findIndex((step) => step.id === stepId);
+    const index = this.stepManager
+      .getSteps()
+      .findIndex((step) => step.id === stepId);
     if (index === -1) {
       const error = `Step with ID ${stepId} not found`;
       this.logger.error("removeStep", error);
       throw new Error(error);
     }
-    this.steps.splice(index, 1);
+    this.stepManager.removeStep(stepId);
   }
 
   // --- LLM Integration Methods --------------------------------
@@ -400,7 +511,7 @@ export class ChainOfThought extends EventEmitter {
 
         // 3. Extract the plan and add it as a step
         if (llmResponse.plan) {
-          this.addStep(`${llmResponse.plan}`, ["llm-plan"]);
+          this.addStep(`${llmResponse.plan}`, "planning", ["llm-plan"]);
         }
 
         // If we get here, everything worked
@@ -433,9 +544,9 @@ export class ChainOfThought extends EventEmitter {
 
     // You can control how many steps or which steps to send
     // For example, let's just send the last few steps:
-    const lastSteps = this.steps
-      .slice(-5)
-      .map((s) => s.content)
+    const lastSteps = this.stepManager
+      .getSteps()
+      .map((s) => s.meta)
       .join("\n");
 
     // Replace any {{tag}} with the provided value or leave unchanged
@@ -606,46 +717,45 @@ Make sure the JSON is valid. No extra text outside of the JSON.
       });
 
       // Initialize with user query
-      this.addStep(`Initial Query: ${userQuery}`, ["user-query"]);
+      this.addStep(`Initial Query: ${userQuery}`, "task", ["user-query"]);
 
       let currentIteration = 0;
       let isComplete = false;
-
-      let steps: CoTAction[] = [];
-      let currentStepIndex = 0;
+      let pendingActions: CoTAction[] = [];
 
       while (!isComplete && currentIteration < maxIterations) {
         this.logger.debug("solveQuery", "Starting iteration", {
           currentIteration,
         });
 
+        // Get next actions from LLM
         const llmResponse = await this.callLLMAndProcessResponse();
 
-        // Insert new actions after current position
-        steps.splice(currentStepIndex, 0, ...llmResponse.actions);
+        // Add new actions to pending queue
+        pendingActions.push(...llmResponse.actions);
 
-        if (Array.isArray(steps)) {
-          // Only process one action at a time, allowing for plan changes
-          const action = steps[currentStepIndex];
-          if (action) {
-            const result = await this.executeAction(action);
-            currentStepIndex++;
+        // Process one action at a time
+        if (pendingActions.length > 0) {
+          const currentAction = pendingActions.shift()!;
+
+          try {
+            const result = await this.executeAction(currentAction);
 
             const updateContext = this.buildLLMPrompt({
               result,
             });
 
-            // After each action, check with LLM if we should continue
+            // Check completion status
             const completionCheck = await this.llmClient.analyze(
               `
               ${updateContext}
 
              ${JSON.stringify({
                query: userQuery,
-               currentSteps: this.steps,
-               lastAction: action.toString() + " RESULT:" + result,
+               currentSteps: this.stepManager.getSteps(),
+               lastAction: currentAction.toString() + " RESULT:" + result,
              })},
-
+             <verification_rules>
               Analyze using Chain of Verification:
 1. The original query/goal - Verify the exact requirements
 2. All steps taken so far - Verify each step was completed successfully
@@ -678,20 +788,23 @@ Only return a JSON object with this exact structure:
 }
 
 Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
+
+</verification_rules>
                 `,
               {
-                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context.
+                system: `You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context. Use <verification_rules> to guide your analysis.
 `,
               }
             );
+
+            console.log(completionCheck);
 
             try {
               const completion = JSON.parse(completionCheck.toString());
               isComplete = completion.complete;
 
               if (completion.newActions) {
-                // Insert new actions before any remaining unprocessed steps
-                steps.splice(currentStepIndex, 0, ...completion.newActions);
+                pendingActions.unshift(...completion.newActions);
               }
 
               if (isComplete || !completion.shouldContinue) {
@@ -699,13 +812,15 @@ Do not include any text outside the JSON object. Do not include backticks, markd
                   `Goal ${isComplete ? "achieved" : "failed"}: ${
                     completion.reason
                   }`,
+                  "system",
                   ["completion"]
                 );
                 this.emit("think:complete", { query: userQuery });
-                return; // Exit immediately when complete or should not continue
+                return;
               } else {
                 this.addStep(
                   `Action completed, continuing execution: ${completion.reason}`,
+                  "system",
                   ["continuation"]
                 );
               }
@@ -720,6 +835,11 @@ Do not include any text outside the JSON object. Do not include backticks, markd
               );
               break;
             }
+
+            console.log(this.stepManager.getSteps());
+          } catch (error) {
+            this.emit("think:error", { query: userQuery, error });
+            throw error;
           }
         }
 
@@ -729,10 +849,10 @@ Do not include any text outside the JSON object. Do not include backticks, markd
       if (currentIteration >= maxIterations) {
         const error = `Failed to solve query "${userQuery}" within ${maxIterations} iterations`;
         this.logger.error("solveQuery", error);
-        this.emit("think:timeout", { query: userQuery }); // Emit timeout
+        this.emit("think:timeout", { query: userQuery });
       }
     } catch (error) {
-      this.emit("think:error", { query: userQuery, error }); // Emit error
+      this.emit("think:error", { query: userQuery, error });
       throw error;
     }
   }
@@ -740,7 +860,7 @@ Do not include any text outside the JSON object. Do not include backticks, markd
 
 // Add type definitions for the events
 export interface ChainOfThoughtEvents {
-  step: (step: CoTStep) => void;
+  step: (step: Step) => void;
   "action:start": (action: CoTAction) => void;
   "action:complete": (data: { action: CoTAction; result: string }) => void;
   "action:error": (data: { action: CoTAction; error: Error | unknown }) => void;
