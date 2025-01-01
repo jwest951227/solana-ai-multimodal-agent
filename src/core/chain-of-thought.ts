@@ -353,6 +353,8 @@ export class ChainOfThought extends EventEmitter {
         meta: { ...actionStep.meta, result },
       });
 
+      console.log(this.stepManager.getSteps());
+
       // Store the result in context
       this.mergeContext({
         actionHistory: {
@@ -463,6 +465,7 @@ export class ChainOfThought extends EventEmitter {
    * 4. Executes or applies the returned plan & actions
    */
   public async callLLMAndProcessResponse(
+    query: string,
     maxRetries: number = 3
   ): Promise<LLMStructuredResponse> {
     this.logger.debug("callLLMAndProcessResponse", "Starting LLM call", {
@@ -473,7 +476,7 @@ export class ChainOfThought extends EventEmitter {
 
     while (attempts < maxRetries) {
       // 1. Build the prompt
-      const prompt = this.buildLLMPrompt();
+      const prompt = this.buildLLMPrompt({ query });
 
       // 2. Send the prompt to the LLM and get a structured response
       try {
@@ -576,6 +579,10 @@ export class ChainOfThought extends EventEmitter {
     const prompt = `
     <global_context>
     <OBJECTIVE>
+    <GOAL>
+    {{query}}
+    </GOAL>
+
 You are a Chain of Thought reasoning system. Think through this problem step by step:
 
 1. First, carefully analyze the goal and break it down into logical components
@@ -632,18 +639,12 @@ Return a JSON array where each step contains:
 
 {{output_format_details}}
 
-Provide a JSON response with the following structure:
+Provide a JSON response with the following structure (this is an example only):
 
 {
   "plan": "A short explanation of what you will do",
       "meta": {
-      "requirements": {
-        "resources": {
-          "fish": 450000
-        },
-        "population": 1
-      }
-    },
+      "requirements": {},
   "actions": [
         {
           type: "GRAPHQL_FETCH",
@@ -717,7 +718,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
       });
 
       // Initialize with user query
-      this.addStep(`Initial Query: ${userQuery}`, "task", ["user-query"]);
+      this.addStep(`User  Query: ${userQuery}`, "task", ["user-query"]);
 
       let currentIteration = 0;
       let isComplete = false;
@@ -729,7 +730,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
         });
 
         // Get next actions from LLM
-        const llmResponse = await this.callLLMAndProcessResponse();
+        const llmResponse = await this.callLLMAndProcessResponse(userQuery);
 
         // Add new actions to pending queue
         pendingActions.push(...llmResponse.actions);
@@ -835,8 +836,6 @@ Do not include any text outside the JSON object. Do not include backticks, markd
               );
               break;
             }
-
-            console.log(this.stepManager.getSteps());
           } catch (error) {
             this.emit("think:error", { query: userQuery, error });
             throw error;

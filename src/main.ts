@@ -88,7 +88,7 @@ async function main() {
     console.log("\n💥 Error while thinking about:", query, error);
   });
 
-  await dreams.think("Build me a Fishing Village?");
+  await dreams.think("Build me a Farm");
 
   // console.log(result);
 

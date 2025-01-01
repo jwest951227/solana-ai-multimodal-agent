@@ -128,21 +128,8 @@ Level 3 (Empire):
   - 9000k Fish
 
 7. Building Descriptions:
-    Castle: Where the heart of your realm beats, the Castle is the foundation of your kingdom.
-    Bank: Banks, where the wealth of the land flows, store the riches of your realm.
-    Fragment Mine: Fragment Mines, where the earth's magic is harnessed, produce Ancient Fragments.
-    Resource: Resource buildings, harnessing the land's magic, produce essential resources.
-    Farm: Enchanted Farms, blessed by Gaia, yield golden wheat.
-    Fishing Village: Mystical Fishing Villages, guided by the Moon, harvest the bounty of the seas of Fish
-    Barracks: Barracks, where valor and magic intertwine, train noble Knights.
-    Market: Markets, bustling with arcane traders, summon Donkeys for mystical trading.
-    Archery Range: Archery Ranges, under the watchful eyes of elven masters, train Crossbow men.
-    Stable: Stables, infused with ancient spirits, summon valiant Paladins.
-    Trading Post: Trading Posts, at the crossroads of destiny, expand the horizons of trade.
-    Workers Hut: Workers Huts, blessed by the ancestors, expand the heart of your realm allowing for greater capacity.
-    Watch Tower: Watch Towers, piercing the veils of fog, extend the gaze of your kingdom.
-    Walls: Walls, imbued with the strength of titans, fortify your domain against the shadows.
-    Storehouse: Storehouses, where abundance flows, swell with the wealth of the land.
+    Farm: Creates Wheat
+    Fishing Village: Creates Fish
 
 When assisting players, follow these guidelines:
 
@@ -430,6 +417,7 @@ export const PROVIDER_EXAMPLES = `
   <IMPORTANT_RULES>
     1. If you receive an error, you may need to try again, the error message should tell you what went wrong.
     2. To verify a successful transaction, read the response you get back. You don't need to query anything.
+    3. Never include slashes in your calldata.
   </IMPORTANT_RULES>
 
   <FUNCTIONS>
