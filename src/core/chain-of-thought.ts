@@ -330,6 +330,8 @@ export class ChainOfThought extends EventEmitter {
       { action }
     );
 
+    console.log("log", action);
+
     try {
       const result = await (async () => {
         switch (action.type) {
@@ -352,8 +354,6 @@ export class ChainOfThought extends EventEmitter {
         content: `Action completed: ${result}`,
         meta: { ...actionStep.meta, result },
       });
-
-      console.log(this.stepManager.getSteps());
 
       // Store the result in context
       this.mergeContext({
@@ -547,10 +547,7 @@ export class ChainOfThought extends EventEmitter {
 
     // You can control how many steps or which steps to send
     // For example, let's just send the last few steps:
-    const lastSteps = this.stepManager
-      .getSteps()
-      .map((s) => s.meta)
-      .join("\n");
+    const lastSteps = JSON.stringify(this.stepManager.getSteps());
 
     // Replace any {{tag}} with the provided value or leave unchanged
     const injectTags = (text: string): string => {
@@ -732,12 +729,28 @@ Make sure the JSON is valid. No extra text outside of the JSON.
         // Get next actions from LLM
         const llmResponse = await this.callLLMAndProcessResponse(userQuery);
 
+        console.log("first", llmResponse);
+
         // Add new actions to pending queue
         pendingActions.push(...llmResponse.actions);
 
         // Process one action at a time
         if (pendingActions.length > 0) {
           const currentAction = pendingActions.shift()!;
+          this.logger.debug("think", "Processing action", {
+            action: currentAction,
+            remainingActions: pendingActions.length,
+          });
+
+          // Validate action before execution
+          if (!currentAction.type || !currentAction.payload) {
+            this.logger.error("think", "Invalid action structure", {
+              action: currentAction,
+            });
+            throw new Error(
+              `Invalid action structure: ${JSON.stringify(currentAction)}`
+            );
+          }
 
           try {
             const result = await this.executeAction(currentAction);
@@ -805,7 +818,11 @@ Do not include any text outside the JSON object. Do not include backticks, markd
               isComplete = completion.complete;
 
               if (completion.newActions) {
-                pendingActions.unshift(...completion.newActions);
+                // Extract actions from each plan in newActions
+                const extractedActions = completion.newActions.flatMap(
+                  (plan: any) => plan.actions || []
+                );
+                pendingActions.unshift(...extractedActions);
               }
 
               if (isComplete || !completion.shouldContinue) {

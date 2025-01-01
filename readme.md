@@ -6,6 +6,15 @@
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
 
+Roadmap:
+
+- [x] Chain of Thought
+- [ ] Context Layers
+- [ ] Memory
+- [ ] Agent
+- [ ] Swarm Rooms
+- [ ] Integration with External Agents
+
 ## 1. Overview
 
 Daydreams provides a blueprint for creating autonomous, onchain game agents—programmatic entities that interpret game states, recall historical data, and refine strategies over time. By leveraging vector databases as long-term memory and multi-agent swarm rooms for collective knowledge sharing, Daydreams fosters rapid, continuous improvement among agents.
