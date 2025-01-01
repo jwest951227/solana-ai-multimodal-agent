@@ -709,7 +709,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     this.emit("think:start", { query: userQuery });
 
     try {
-      this.logger.debug("solveQuery", "Starting query solution", {
+      this.logger.debug("think", "Beginning to think", {
         userQuery,
         maxIterations,
       });
@@ -719,17 +719,17 @@ Make sure the JSON is valid. No extra text outside of the JSON.
 
       let currentIteration = 0;
       let isComplete = false;
-      let pendingActions: CoTAction[] = [];
+      const llmResponse = await this.callLLMAndProcessResponse(userQuery);
+      let pendingActions: CoTAction[] = [...llmResponse.actions];
 
-      while (!isComplete && currentIteration < maxIterations) {
-        this.logger.debug("solveQuery", "Starting iteration", {
+      while (
+        !isComplete &&
+        currentIteration < maxIterations &&
+        pendingActions.length > 0
+      ) {
+        this.logger.debug("think", "Processing iteration", {
           currentIteration,
         });
-
-        // Get next actions from LLM
-        const llmResponse = await this.callLLMAndProcessResponse(userQuery);
-
-        console.log("first", llmResponse);
 
         // Add new actions to pending queue
         pendingActions.push(...llmResponse.actions);
