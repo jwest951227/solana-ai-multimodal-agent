@@ -16,6 +16,21 @@ import {
   PROVIDER_EXAMPLES,
   WORLD_GUIDE,
 } from "./core/contexts";
+import * as readline from "readline";
+
+async function getCliInput(prompt: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(prompt, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
 
 async function main() {
   // Initialize VectorDB first
@@ -45,10 +60,14 @@ async function main() {
 
   // Subscribe to events
   dreams.on("step", (step) => {
-    console.log("\n🤔 New thought step:", {
-      content: step.content,
-      tags: step.tags,
-    });
+    if (step.type === "system") {
+      console.log("\n💭 System prompt:", step.content);
+    } else {
+      console.log("\n🤔 New thought step:", {
+        content: step.content,
+        tags: step.tags,
+      });
+    }
   });
 
   dreams.on("action:start", (action) => {
@@ -88,72 +107,40 @@ async function main() {
     console.log("\n💥 Error while thinking about:", query, error);
   });
 
-  await dreams.think("Build me a Farm");
+  // Replace the dreams.think test with interactive CLI
+  while (true) {
+    console.log("\n🤖 Enter your query (or 'exit' to quit):");
+    const userInput = await getCliInput("> ");
 
-  // console.log(result);
+    if (userInput.toLowerCase() === "exit") {
+      console.log("Goodbye! 👋");
+      break;
+    }
 
-  // const intentExtractor = new LLMIntentExtractor(llmClient);
+    try {
+      await dreams.think(userInput);
+    } catch (error) {
+      console.error("Error processing query:", error);
+    }
+  }
 
-  // // Initialize processor with dependencies
-  // const processor = new EventProcessor(
-  //   vectorDb,
-  //   intentExtractor,
-  //   llmClient,
-  //   actionRegistry,
-  //   defaultCharacter,
-  //   LogLevel.INFO
-  // );
-
-  // // Initialize Core with all dependencies including VectorDB
-  // const core = new Core(
-  //   processor,
-  //   roomManager,
-  //   actionRegistry,
-  //   intentExtractor,
-  //   vectorDb,
-  //   {
-  //     logging: {
-  //       level: LogLevel.DEBUG,
-  //       enableColors: true,
-  //       enableTimestamp: true,
-  //     },
-  //   }
-  // );
-
-  // // Initialize consciousness after core is set up
-  // const consciousness = new Consciousness(core, llmClient, roomManager, {
-  //   intervalMs: 60000, // Think every minute
-  //   minConfidence: 0.7,
-  //   logLevel: LogLevel.DEBUG,
-  // });
-
-  // // Initialize clients with core
-  // const twitterClient = new TwitterClient(
-  //   "twitter",
-  //   {
-  //     username: env.TWITTER_USERNAME,
-  //     password: env.TWITTER_PASSWORD,
-  //     email: env.TWITTER_EMAIL,
+  // Remove or comment out the test system prompt
+  // const testSystemPrompt = {
+  //   type: "SYSTEM_PROMPT",
+  //   payload: {
+  //     prompt: "Would you like to continue with this action? (yes/no)",
   //   },
-  //   core
-  // );
-
-  // // Register clients with core
-  // core.registerClient(twitterClient);
-
-  // // Start consciousness
-  // await consciousness.start();
-
-  // // Start listening
-  // await twitterClient.listen();
+  // };
+  // await dreams.executeAction(testSystemPrompt);
 
   // Handle shutdown
   process.on("SIGINT", async () => {
-    console.log("Shutting down...");
-    // await consciousness.stop();
-    // await twitterClient.stop();
+    console.log("\nShutting down...");
     process.exit(0);
   });
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  console.error("Fatal error:", error);
+  process.exit(1);
+});

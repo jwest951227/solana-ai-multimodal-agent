@@ -34,14 +34,17 @@ export interface ChainOfThoughtContext {
  * Different action types the CoT might execute.
  * You can expand or modify as needed.
  */
-export type CoTActionType = "GRAPHQL_FETCH" | "EXECUTE_TRANSACTION";
+export type CoTActionType =
+  | "GRAPHQL_FETCH"
+  | "EXECUTE_TRANSACTION"
+  | "SYSTEM_PROMPT";
 
 /**
  * Data necessary for a particular action type.
  * Extend this to fit your actual logic.
  */
 export interface CoTAction {
-  type: "GRAPHQL_FETCH" | "EXECUTE_TRANSACTION";
+  type: CoTActionType;
   payload: Record<string, any>;
 }
 

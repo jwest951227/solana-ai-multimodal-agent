@@ -11,6 +11,7 @@ import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
+import * as readline from "readline";
 
 // Add new step types at the top
 type StepType = "action" | "planning" | "system" | "task";
@@ -115,6 +116,20 @@ class StepManager {
     this.steps = [];
     this.stepIds.clear();
   }
+}
+
+async function askUser(question: string): Promise<string> {
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(`${question}\nYour response: `, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
 }
 
 /**
@@ -335,6 +350,11 @@ export class ChainOfThought extends EventEmitter {
     try {
       const result = await (async () => {
         switch (action.type) {
+          case "SYSTEM_PROMPT":
+            // Handle system prompt by asking user
+            const userResponse = await askUser(action.payload.prompt);
+            return userResponse;
+
           case "GRAPHQL_FETCH":
             return await this.graphqlFetchAction(action.payload);
 
