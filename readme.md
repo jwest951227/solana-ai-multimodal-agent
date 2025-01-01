@@ -15,6 +15,18 @@ Roadmap:
 - [ ] Swarm Rooms
 - [ ] Integration with External Agents
 
+# Getting Started
+
+You must have bun installed.
+
+```bash
+bun install
+
+bun start
+```
+
+This will start the agent and you will be able to interact with it via the CLI.
+
 ## 1. Overview
 
 Daydreams provides a blueprint for creating autonomous, onchain game agents—programmatic entities that interpret game states, recall historical data, and refine strategies over time. By leveraging vector databases as long-term memory and multi-agent swarm rooms for collective knowledge sharing, Daydreams fosters rapid, continuous improvement among agents.
