@@ -12,6 +12,7 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { GoalManager, type HorizonType } from "./goalManager";
 
 // Add new step types at the top
 type StepType = "action" | "planning" | "system" | "task";
@@ -142,7 +143,7 @@ export class ChainOfThought extends EventEmitter {
   private snapshots: ChainOfThoughtContext[]; // Optional for storing context snapshots
   private logger: Logger;
   private contextLogPath: string;
-
+  goalManager: GoalManager;
   /**
    * Constructor initializes the ChainOfThought with an optional initial context.
    * @param initialContext Optional context to bootstrap the chain of thought.
@@ -173,6 +174,94 @@ export class ChainOfThought extends EventEmitter {
     }
     // Log initial context
     this.logContext("INITIAL_CONTEXT");
+
+    this.goalManager = new GoalManager();
+  }
+
+  // Add new method for strategic planning
+  public async planStrategy(objective: string): Promise<void> {
+    const prompt = `
+      Analyze this objective and break it down into a hierarchical goal structure:
+
+      <objective>
+      "${objective}"
+      </objective>
+
+      <context>
+      ${JSON.stringify(this.context, null, 2)}
+      </context>
+
+      <goal_manager>
+      Create three levels of goals from the objective:
+      1. Long-term (strategic goals that might take multiple sessions)
+      2. Medium-term (tactical goals achievable in one session)
+      3. Short-term (immediate actionable goals)
+      
+      For each goal, specify:
+      - Description
+      - Success criteria
+      - Dependencies
+      - Priority (1-10)
+      
+      Return as JSON with this structure:
+      {
+        "long_term": [{ description, success_criteria[], priority, dependencies[] }],
+        "medium_term": [...],
+        "short_term": [...]
+      }
+      </goal_manager>
+    `;
+
+    const response = await this.llmClient.analyze(prompt, {
+      system: `"You are a high level goal manager that outputs structured JSON only. You are given an objective and a context and you must output a goal structure that is achievable in the context of the objective. You must output structured JSON only. "`,
+    });
+    const goals = JSON.parse(response.toString());
+
+    console.log("goals", goals);
+
+    // Create hierarchical goal structure
+    for (const horizon of ["long_term", "medium_term", "short_term"] as const) {
+      for (const goalData of goals[horizon]) {
+        this.goalManager.addGoal({
+          horizon: horizon.split("_")[0] as HorizonType,
+          status: "pending",
+          ...goalData,
+          created_at: Date.now(),
+        });
+      }
+    }
+  }
+
+  // Add method to execute the next appropriate goal
+  public async executeNextGoal(): Promise<void> {
+    const readyGoals = this.goalManager.getReadyGoals();
+
+    if (!readyGoals.length) return;
+
+    const currentGoal = readyGoals[0];
+    this.goalManager.updateGoalStatus(currentGoal.id, "active");
+
+    try {
+      // Use existing think() method but with goal context
+      await this.think(currentGoal.description);
+
+      // Check if the last step indicates a failure condition
+      const steps = this.stepManager.getSteps();
+      const lastStep = steps[steps.length - 1];
+
+      if (
+        lastStep?.content.toLowerCase().includes("failed") ||
+        lastStep?.content.toLowerCase().includes("cannot proceed")
+      ) {
+        this.goalManager.updateGoalStatus(currentGoal.id, "failed");
+        throw new Error(lastStep.content);
+      }
+
+      this.goalManager.updateGoalStatus(currentGoal.id, "completed");
+    } catch (error) {
+      this.goalManager.updateGoalStatus(currentGoal.id, "failed");
+      throw error;
+    }
   }
 
   private logContext(trigger: string): void {

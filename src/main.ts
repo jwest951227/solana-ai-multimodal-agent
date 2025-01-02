@@ -108,7 +108,7 @@ async function main() {
   });
 
   while (true) {
-    console.log("\n🤖 Enter your query (or 'exit' to quit):");
+    console.log("\n🤖 Enter your goal (or 'exit' to quit):");
     const userInput = await getCliInput("> ");
 
     if (userInput.toLowerCase() === "exit") {
@@ -117,9 +117,37 @@ async function main() {
     }
 
     try {
-      await dreams.think(userInput);
+      // First, plan the strategy for the goal
+      console.log("\n🤔 Planning strategy for goal...");
+      await dreams.planStrategy(userInput);
+
+      // Execute goals until completion
+      console.log("\n🎯 Executing goals...");
+      let completedGoals = 0;
+      let failedGoals = 0;
+
+      while (true) {
+        const readyGoals = dreams.goalManager.getReadyGoals();
+
+        if (readyGoals.length === 0) {
+          console.log("\n✨ All goals completed!");
+          break;
+        }
+
+        try {
+          await dreams.executeNextGoal();
+          completedGoals++;
+        } catch (error) {
+          console.error("\n❌ Goal execution failed:", error);
+          failedGoals++;
+        }
+      }
+
+      console.log("\n📊 Goal Execution Summary:");
+      console.log(`✅ Completed Goals: ${completedGoals}`);
+      console.log(`❌ Failed Goals: ${failedGoals}`);
     } catch (error) {
-      console.error("Error processing query:", error);
+      console.error("Error processing goal:", error);
     }
   }
 
