@@ -12,7 +12,7 @@ import { EventEmitter } from "events";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { GoalManager, type HorizonType } from "./goalManager";
+import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
 
 // Add new step types at the top
 type StepType = "action" | "planning" | "system" | "task";
@@ -180,9 +180,11 @@ export class ChainOfThought extends EventEmitter {
 
   // Add new method for strategic planning
   public async planStrategy(objective: string): Promise<void> {
-    const prompt = `
-      Analyze this objective and break it down into a hierarchical goal structure:
+    this.logger.debug("planStrategy", "Planning strategy for objective", {
+      objective,
+    });
 
+    const prompt = `
       <objective>
       "${objective}"
       </objective>
@@ -191,76 +193,439 @@ export class ChainOfThought extends EventEmitter {
       ${JSON.stringify(this.context, null, 2)}
       </context>
 
-      <goal_manager>
-      Create three levels of goals from the objective:
-      1. Long-term (strategic goals that might take multiple sessions)
-      2. Medium-term (tactical goals achievable in one session)
-      3. Short-term (immediate actionable goals)
+      <goal_planning_rules>
+      1. Break down the objective into hierarchical goals
+      2. Each goal must have clear success criteria
+      3. Identify dependencies between goals
+      4. Prioritize goals (1-10) based on urgency and impact
+      5. Ensure goals are achievable given the current context
       
-      For each goal, specify:
-      - Description
-      - Success criteria
-      - Dependencies
-      - Priority (1-10)
+      Return a JSON structure with three arrays:
+      - long_term: Strategic goals that might take multiple sessions
+      - medium_term: Tactical goals achievable in one session
+      - short_term: Immediate actionable goals
       
-      Return as JSON with this structure:
+      Each goal must include:
+      - description: Clear goal statement
+      - success_criteria: Array of specific conditions for completion
+      - dependencies: Array of prerequisite goal IDs (empty for initial goals)
+      - priority: Number 1-10 (10 being highest)
+
+      </goal_planning_rules>
+
+    Return as JSON with this <response_structure>, do not include any other text:
+
+    <response_structure>
       {
         "long_term": [{ description, success_criteria[], priority, dependencies[] }],
         "medium_term": [...],
         "short_term": [...]
       }
-      </goal_manager>
+    </response_structure>
+
     `;
 
-    const response = await this.llmClient.analyze(prompt, {
-      system: `"You are a high level goal manager that outputs structured JSON only. You are given an objective and a context and you must output a goal structure that is achievable in the context of the objective. You must output structured JSON only. "`,
+    try {
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are a strategic planning system that creates hierarchical goal structures.",
+      });
+
+      const goals = JSON.parse(response.toString());
+
+      console.log(goals);
+
+      // Create goals in order: long-term first, then medium, then short
+      for (const horizon of [
+        "long_term",
+        "medium_term",
+        "short_term",
+      ] as const) {
+        for (const goalData of goals[horizon]) {
+          const newGoal = this.goalManager.addGoal({
+            horizon: horizon.split("_")[0] as HorizonType,
+            status: "pending",
+            ...goalData,
+            created_at: Date.now(),
+          });
+
+          this.emit("goal:created", {
+            id: newGoal.id,
+            description: newGoal.description,
+          });
+        }
+      }
+
+      // Add a planning step
+      this.addStep(
+        `Strategy planned for objective: ${objective}`,
+        "planning",
+        ["strategy-planning"],
+        { goals }
+      );
+    } catch (error) {
+      this.logger.error("planStrategy", "Failed to plan strategy", { error });
+      throw error;
+    }
+  }
+
+  // Add new method to get prioritized goals
+  private getPrioritizedGoals(): any[] {
+    const readyGoals = this.goalManager.getReadyGoals();
+
+    // Sort first by horizon priority (short > medium > long)
+    const horizonPriority = {
+      short: 3,
+      medium: 2,
+      long: 1,
+    };
+
+    return readyGoals.sort((a, b) => {
+      // First sort by horizon
+      const horizonDiff =
+        horizonPriority[a.horizon] - horizonPriority[b.horizon];
+      if (horizonDiff !== 0) return -horizonDiff;
+
+      // Then by explicit priority
+      return (b.priority || 0) - (a.priority || 0);
     });
-    const goals = JSON.parse(response.toString());
+  }
 
-    console.log("goals", goals);
+  // Add method to check if goal execution is possible
+  private async canExecuteGoal(
+    goal: any
+  ): Promise<{ possible: boolean; reason: string }> {
+    const prompt = `
+      <goal_execution_check>
+      Goal: ${goal.description}
+      
+      Current Context:
+      ${JSON.stringify(this.context, null, 2)}
+      
+      Required Resources/Prerequisites:
+      ${JSON.stringify(goal.requirements || {}, null, 2)}
+      
+      Analyze if this goal can be executed right now. Consider:
+      1. Are all required resources available?
+      2. Are environmental conditions met?
+      3. Are there any blocking conditions?
+      
 
-    // Create hierarchical goal structure
-    for (const horizon of ["long_term", "medium_term", "short_term"] as const) {
-      for (const goalData of goals[horizon]) {
+      </goal_execution_check>
+
+    Return as JSON with this <response_structure>, do not include any other text:
+
+    <response_structure>
+      {
+        "possible": boolean,
+        "reason": string (explanation why possible/not possible)
+      }
+      </response_structure>
+
+      Only return the JSON object, do not include any other text, backticks, or comments.
+    `;
+
+    try {
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are a goal feasibility analyzer that checks if goals can be executed given current conditions.",
+      });
+
+      console.log(response);
+
+      return JSON.parse(response.toString());
+    } catch (error) {
+      this.logger.error(
+        "canExecuteGoal",
+        "Failed to check goal executability",
+        { error }
+      );
+      return { possible: false, reason: "Error checking goal executability" };
+    }
+  }
+
+  // Add method to refine a goal into more specific sub-goals
+  private async refineGoal(goal: any): Promise<void> {
+    const prompt = `
+      <goal_refinement>
+      Goal to Refine: ${goal.description}
+      
+      Current Context:
+      ${JSON.stringify(this.context, null, 2)}
+      
+      Break this goal down into more specific, immediately actionable sub-goals.
+      Each sub-goal must be:
+      1. Concrete and measurable
+      2. Achievable with current resources
+      3. Properly sequenced
+
+      </goal_refinement>
+      
+      Return as JSON with this <response_structure>, do not include any other text:
+
+      <response_structure>
+      {
+        "description": string,
+        "success_criteria": string[],
+        "priority": number,
+        "horizon": "short",
+        "requirements": object
+      }
+      </response_structure>
+
+      Only return the JSON object, do not include any other text, backticks, or comments.
+    `;
+
+    try {
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are a goal refinement system that breaks down complex goals into actionable steps.",
+      });
+
+      const subGoals = JSON.parse(response.toString());
+
+      // Add sub-goals to goal manager with parent reference
+      for (const subGoal of subGoals) {
         this.goalManager.addGoal({
-          horizon: horizon.split("_")[0] as HorizonType,
+          ...subGoal,
+          parentGoal: goal.id,
           status: "pending",
-          ...goalData,
-          created_at: Date.now(),
         });
+      }
+
+      // Update original goal status
+      this.goalManager.updateGoalStatus(goal.id, "active");
+    } catch (error) {
+      this.logger.error("refineGoal", "Failed to refine goal", { error });
+      throw error;
+    }
+  }
+
+  // Replace existing executeNextGoal with this version
+  public async executeNextGoal(): Promise<void> {
+    const prioritizedGoals = this.getPrioritizedGoals();
+
+    if (!prioritizedGoals.length) {
+      this.logger.debug("executeNextGoal", "No ready goals available");
+      return;
+    }
+
+    // Try goals in priority order until we find one we can execute
+    for (const currentGoal of prioritizedGoals) {
+      const { possible, reason } = await this.canExecuteGoal(currentGoal);
+
+      if (!possible) {
+        this.logger.debug("executeNextGoal", "Goal cannot be executed", {
+          goalId: currentGoal.id,
+          reason,
+        });
+
+        // If it's a medium/long term goal, try to refine it
+        if (currentGoal.horizon !== "short") {
+          this.logger.debug("executeNextGoal", "Attempting to refine goal", {
+            goalId: currentGoal.id,
+          });
+          await this.refineGoal(currentGoal);
+          continue;
+        }
+
+        // Mark as blocked and continue to next goal
+        this.goalManager.blockGoalHierarchy(currentGoal.id, reason);
+        this.emit("goal:blocked", {
+          id: currentGoal.id,
+          reason,
+        });
+        continue;
+      }
+
+      // We found an executable goal
+      this.emit("goal:started", {
+        id: currentGoal.id,
+        description: currentGoal.description,
+      });
+
+      try {
+        // Execute the goal using think()
+        await this.think(currentGoal.description);
+
+        // Check success criteria
+        const success = await this.validateGoalSuccess(currentGoal);
+
+        if (success) {
+          await this.handleGoalCompletion(currentGoal);
+        } else {
+          // Instead of throwing error, block the goal and continue
+          const blockReason = `Goal validation failed: Success criteria not met for ${currentGoal.description}`;
+          this.goalManager.blockGoalHierarchy(currentGoal.id, blockReason);
+          this.emit("goal:blocked", {
+            id: currentGoal.id,
+            reason: blockReason,
+          });
+
+          // Try the next goal
+          continue;
+        }
+
+        // Only execute one successful goal per call
+        break;
+      } catch (error) {
+        // Handle unexpected errors during execution
+        this.logger.error(
+          "executeNextGoal",
+          "Unexpected error during goal execution",
+          {
+            goalId: currentGoal.id,
+            error,
+          }
+        );
+
+        await this.handleGoalFailure(currentGoal, error);
+
+        // Continue with next goal instead of throwing
+        continue;
       }
     }
   }
 
-  // Add method to execute the next appropriate goal
-  public async executeNextGoal(): Promise<void> {
-    const readyGoals = this.goalManager.getReadyGoals();
+  // Add new method to handle goal completion
+  private async handleGoalCompletion(goal: any): Promise<void> {
+    this.goalManager.updateGoalStatus(goal.id, "completed");
 
-    if (!readyGoals.length) return;
+    // Update context based on goal completion
+    const contextUpdate = await this.determineContextUpdates(goal);
+    if (contextUpdate) {
+      this.mergeContext(contextUpdate);
+    }
 
-    const currentGoal = readyGoals[0];
-    this.goalManager.updateGoalStatus(currentGoal.id, "active");
+    // Check parent goals
+    if (goal.parentGoal) {
+      const parentGoal = this.goalManager.getGoalById(goal.parentGoal);
+      if (parentGoal) {
+        const siblingGoals = this.goalManager.getChildGoals(parentGoal.id);
+        const allCompleted = siblingGoals.every(
+          (g) => g.status === "completed"
+        );
+
+        if (allCompleted) {
+          this.goalManager.updateGoalStatus(parentGoal.id, "ready");
+        }
+      }
+    }
+
+    // Update dependent goals
+    const dependentGoals = this.goalManager.getDependentGoals(goal.id);
+    for (const depGoal of dependentGoals) {
+      if (this.goalManager.arePrerequisitesMet(depGoal.id)) {
+        this.goalManager.updateGoalStatus(depGoal.id, "ready");
+      }
+    }
+
+    this.emit("goal:completed", {
+      id: goal.id,
+      result: "Goal success criteria met",
+    });
+  }
+
+  // Add new method to determine context updates after goal completion
+  private async determineContextUpdates(
+    goal: any
+  ): Promise<Partial<ChainOfThoughtContext> | null> {
+    const prompt = `
+      <context_update_analysis>
+      Completed Goal: ${goal.description}
+      
+      Current Context:
+      ${JSON.stringify(this.context, null, 2)}
+      
+      Recent Steps:
+      ${JSON.stringify(this.stepManager.getSteps().slice(-5), null, 2)}
+      
+      Analyze how the world state has changed after this goal completion.
+      Return only a JSON object with updated context fields that have changed.
+      </context_update_analysis>
+    `;
 
     try {
-      // Use existing think() method but with goal context
-      await this.think(currentGoal.description);
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are a context analysis system that determines state changes after goal completion.",
+      });
 
-      // Check if the last step indicates a failure condition
-      const steps = this.stepManager.getSteps();
-      const lastStep = steps[steps.length - 1];
+      return JSON.parse(response.toString());
+    } catch (error) {
+      this.logger.error(
+        "determineContextUpdates",
+        "Failed to determine context updates",
+        { error }
+      );
+      return null;
+    }
+  }
 
-      if (
-        lastStep?.content.toLowerCase().includes("failed") ||
-        lastStep?.content.toLowerCase().includes("cannot proceed")
-      ) {
-        this.goalManager.updateGoalStatus(currentGoal.id, "failed");
-        throw new Error(lastStep.content);
+  // Add new method to handle goal failure
+  private async handleGoalFailure(
+    goal: any,
+    error: Error | unknown
+  ): Promise<void> {
+    this.goalManager.updateGoalStatus(goal.id, "failed");
+
+    // If this was a sub-goal, mark parent as blocked
+    if (goal.parentGoal) {
+      this.goalManager.updateGoalStatus(goal.parentGoal, "blocked");
+    }
+
+    this.emit("goal:failed", {
+      id: goal.id,
+      error,
+    });
+  }
+
+  // Add new method to validate goal success
+  private async validateGoalSuccess(goal: any): Promise<boolean> {
+    const prompt = `
+      <goal_validation>
+      Goal: ${goal.description}
+      
+      Success Criteria:
+      ${goal.success_criteria.map((c: string) => `- ${c}`).join("\n")}
+      
+      Current Context:
+      ${JSON.stringify(this.context, null, 2)}
+      
+      Recent Steps:
+      ${JSON.stringify(this.stepManager.getSteps().slice(-5), null, 2)}
+      
+      Based on the success criteria and current context, has this goal been achieved?
+      Return only a JSON object with: { "success": boolean, "reason": string }
+      </goal_validation>
+    `;
+
+    try {
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are a goal validation system that carefully checks success criteria against the current context.",
+      });
+
+      const result = JSON.parse(response.toString());
+
+      if (result.success) {
+        this.addStep(
+          `Goal validated as successful: ${result.reason}`,
+          "system",
+          ["goal-validation"]
+        );
+      } else {
+        this.addStep(`Goal validation failed: ${result.reason}`, "system", [
+          "goal-validation",
+        ]);
       }
 
-      this.goalManager.updateGoalStatus(currentGoal.id, "completed");
+      return result.success;
     } catch (error) {
-      this.goalManager.updateGoalStatus(currentGoal.id, "failed");
-      throw error;
+      this.logger.error("validateGoalSuccess", "Goal validation failed", {
+        error,
+      });
+      return false;
     }
   }
 
@@ -755,7 +1120,7 @@ Provide a JSON response with the following structure (this is an example only):
         {
           type: "GRAPHQL_FETCH",
           payload: {
-            query: "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } } }",
+            query: "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } }",
           },
         },
         {
@@ -891,7 +1256,7 @@ IMPORTANT RESOURCE RULES:
 - Do not continue planning if prerequisites cannot be met
 
 For each verification:
-- Check preconditions were met
+- Check preconditions were met  
 - Validate the execution was proper
 - Confirm expected postconditions
 - Look for any edge cases or errors
@@ -910,7 +1275,7 @@ Only return a JSON object with this exact structure:
   "newActions": [] // Only include if continuing and resources are available and search <global_context> for more details
 }
 
-Do not include any text outside the JSON object. Do not include backticks, markdown formatting, or explanations.
+Do not include any text outside the JSON object. Do not include backticks, backslashes, markdown formatting, or explanations.
 
 </verification_rules>
                 `,
@@ -960,7 +1325,7 @@ Do not include any text outside the JSON object. Do not include backticks, markd
                   completionCheck,
                 }
               );
-              break;
+              continue;
             }
           } catch (error) {
             this.emit("think:error", { query: userQuery, error });
@@ -993,6 +1358,12 @@ export interface ChainOfThoughtEvents {
   "think:complete": (data: { query: string }) => void;
   "think:timeout": (data: { query: string }) => void;
   "think:error": (data: { query: string; error: Error | unknown }) => void;
+  "goal:created": (goal: { id: string; description: string }) => void;
+  "goal:updated": (goal: { id: string; status: GoalStatus }) => void;
+  "goal:completed": (goal: { id: string; result: any }) => void;
+  "goal:failed": (goal: { id: string; error: Error | unknown }) => void;
+  "goal:started": (goal: { id: string; description: string }) => void;
+  "goal:blocked": (goal: { id: string; reason: string }) => void;
 }
 
 // Add type safety to event emitter

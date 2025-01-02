@@ -17,6 +17,8 @@ import {
   WORLD_GUIDE,
 } from "./core/contexts";
 import * as readline from "readline";
+import { type GoalStatus } from "./core/goalManager";
+import chalk from "chalk";
 
 async function getCliInput(prompt: string): Promise<string> {
   const rl = readline.createInterface({
@@ -30,6 +32,18 @@ async function getCliInput(prompt: string): Promise<string> {
       resolve(answer);
     });
   });
+}
+
+function printGoalStatus(status: GoalStatus): string {
+  const colors: Record<GoalStatus, string> = {
+    pending: chalk.yellow("⏳ PENDING"),
+    active: chalk.blue("▶️ ACTIVE"),
+    completed: chalk.green("✅ COMPLETED"),
+    failed: chalk.red("❌ FAILED"),
+    ready: chalk.cyan("🎯 READY"),
+    blocked: chalk.red("🚫 BLOCKED"),
+  };
+  return colors[status] || status;
 }
 
 async function main() {
@@ -107,58 +121,153 @@ async function main() {
     console.log("\n💥 Error while thinking about:", query, error);
   });
 
+  // Add goal-related event handlers
+  dreams.on("goal:created", ({ id, description }) => {
+    console.log(chalk.cyan("\n🎯 New goal created:"), {
+      id,
+      description,
+    });
+  });
+
+  dreams.on("goal:updated", ({ id, status }) => {
+    console.log(chalk.yellow("\n📝 Goal status updated:"), {
+      id,
+      status: printGoalStatus(status),
+    });
+  });
+
+  dreams.on("goal:completed", ({ id, result }) => {
+    console.log(chalk.green("\n✨ Goal completed:"), {
+      id,
+      result,
+    });
+  });
+
+  dreams.on("goal:failed", ({ id, error }) => {
+    console.log(chalk.red("\n💥 Goal failed:"), {
+      id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+
   while (true) {
-    console.log("\n🤖 Enter your goal (or 'exit' to quit):");
+    console.log(chalk.cyan("\n🤖 Enter your goal (or 'exit' to quit):"));
     const userInput = await getCliInput("> ");
 
     if (userInput.toLowerCase() === "exit") {
-      console.log("Goodbye! 👋");
+      console.log(chalk.yellow("Goodbye! 👋"));
       break;
     }
 
     try {
       // First, plan the strategy for the goal
-      console.log("\n🤔 Planning strategy for goal...");
+      console.log(chalk.cyan("\n🤔 Planning strategy for goal..."));
       await dreams.planStrategy(userInput);
 
-      // Execute goals until completion
-      console.log("\n🎯 Executing goals...");
-      let completedGoals = 0;
-      let failedGoals = 0;
+      // Execute goals until completion or failure
+      console.log(chalk.cyan("\n🎯 Executing goals..."));
 
+      const stats = {
+        completed: 0,
+        failed: 0,
+        total: 0,
+      };
+
+      // Keep executing goals until no more ready goals
       while (true) {
         const readyGoals = dreams.goalManager.getReadyGoals();
+        const activeGoals = dreams.goalManager
+          .getGoalsByHorizon("short")
+          .filter((g) => g.status === "active");
+        const pendingGoals = dreams.goalManager
+          .getGoalsByHorizon("short")
+          .filter((g) => g.status === "pending");
 
-        if (readyGoals.length === 0) {
-          console.log("\n✨ All goals completed!");
+        // Print current status
+        console.log(chalk.cyan("\n📊 Current Progress:"));
+        console.log(`Ready goals: ${readyGoals.length}`);
+        console.log(`Active goals: ${activeGoals.length}`);
+        console.log(`Pending goals: ${pendingGoals.length}`);
+        console.log(`Completed: ${stats.completed}`);
+        console.log(`Failed: ${stats.failed}`);
+
+        if (
+          readyGoals.length === 0 &&
+          activeGoals.length === 0 &&
+          pendingGoals.length === 0
+        ) {
+          console.log(chalk.green("\n✨ All goals completed!"));
+          break;
+        }
+
+        if (readyGoals.length === 0 && activeGoals.length === 0) {
+          console.log(
+            chalk.yellow(
+              "\n⚠️ No ready or active goals, but some goals are pending:"
+            )
+          );
+          pendingGoals.forEach((goal) => {
+            const blockingGoals = dreams.goalManager.getBlockingGoals(goal.id);
+            console.log(chalk.yellow(`\n📌 Pending Goal: ${goal.description}`));
+            console.log(
+              chalk.yellow(`   Blocked by: ${blockingGoals.length} goals`)
+            );
+            blockingGoals.forEach((blocking) => {
+              console.log(
+                chalk.yellow(
+                  `   - ${blocking.description} (${blocking.status})`
+                )
+              );
+            });
+          });
           break;
         }
 
         try {
           await dreams.executeNextGoal();
-          completedGoals++;
+          stats.completed++;
         } catch (error) {
-          console.error("\n❌ Goal execution failed:", error);
-          failedGoals++;
+          console.error(chalk.red("\n❌ Goal execution failed:"), error);
+          stats.failed++;
+
+          // Check if we should continue
+          const shouldContinue = await getCliInput(
+            chalk.yellow("\nContinue executing remaining goals? (y/n): ")
+          );
+
+          if (shouldContinue.toLowerCase() !== "y") {
+            console.log(chalk.yellow("Stopping goal execution."));
+            break;
+          }
         }
+
+        stats.total++;
       }
 
-      console.log("\n📊 Goal Execution Summary:");
-      console.log(`✅ Completed Goals: ${completedGoals}`);
-      console.log(`❌ Failed Goals: ${failedGoals}`);
+      // Final summary
+      console.log(chalk.cyan("\n📊 Final Execution Summary:"));
+      console.log(chalk.green(`✅ Completed Goals: ${stats.completed}`));
+      console.log(chalk.red(`❌ Failed Goals: ${stats.failed}`));
+      console.log(
+        chalk.blue(
+          `📈 Success Rate: ${Math.round(
+            (stats.completed / stats.total) * 100
+          )}%`
+        )
+      );
     } catch (error) {
-      console.error("Error processing goal:", error);
+      console.error(chalk.red("Error processing goal:"), error);
     }
   }
 
   // Handle shutdown
   process.on("SIGINT", async () => {
-    console.log("\nShutting down...");
+    console.log(chalk.yellow("\nShutting down..."));
     process.exit(0);
   });
 }
 
 main().catch((error) => {
-  console.error("Fatal error:", error);
+  console.error(chalk.red("Fatal error:"), error);
   process.exit(1);
 });
