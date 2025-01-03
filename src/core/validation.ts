@@ -1,6 +1,3 @@
-import Ajv from "ajv";
-import type { Step } from "./chain-of-thought";
-
 /**
  * Represents a single "step" in the Chain of Thought.
  */
@@ -65,46 +62,6 @@ export interface CoTTransaction {
   calldata: any[];
 }
 
-const queryValidatorSchema = {
-  type: "object",
-  properties: {
-    plan: { type: "string" },
-    meta: {
-      type: "object",
-      properties: {
-        requirements: {
-          type: "object",
-          properties: {
-            resources: {
-              type: "object",
-              additionalProperties: { type: "number" },
-            },
-            population: { type: "number" },
-          },
-        },
-      },
-    },
-    actions: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          type: {
-            type: "string",
-            enum: ["GRAPHQL_FETCH", "EXECUTE_TRANSACTION"],
-          },
-          payload: {
-            type: "object",
-          },
-        },
-        required: ["type", "payload"],
-      },
-    },
-  },
-  required: ["plan", "actions"],
-  additionalProperties: false,
-};
-
 export const queryValidator = (
   response: any
 ): response is LLMStructuredResponse => {
@@ -118,17 +75,6 @@ export const queryValidator = (
   }
 
   return true;
-};
-
-const transactionValidatorSchema = {
-  type: "object",
-  properties: {
-    contractAddress: { type: "string" },
-    entrypoint: { type: "string" },
-    calldata: { type: "array" },
-  },
-  required: ["contractAddress", "entrypoint", "calldata"],
-  additionalProperties: false,
 };
 
 export const transactionValidator = (

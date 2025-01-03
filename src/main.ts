@@ -11,11 +11,7 @@ import { LLMClient } from "./core/llm-client";
 import { defaultCharacter } from "./core/character";
 import { Consciousness } from "./core/consciousness";
 import { ChainOfThought } from "./core/chain-of-thought";
-import {
-  AVAILABLE_QUERIES,
-  PROVIDER_EXAMPLES,
-  WORLD_GUIDE,
-} from "./core/contexts";
+import { ETERNUM_CONTEXT } from "./core/contexts";
 import * as readline from "readline";
 import { type GoalStatus } from "./core/goalManager";
 import chalk from "chalk";
@@ -53,13 +49,6 @@ async function main() {
     logLevel: LogLevel.INFO,
   });
 
-  // Initialize RoomManager with VectorDB
-  const roomManager = new RoomManager(vectorDb, {
-    logLevel: LogLevel.INFO,
-  });
-
-  const actionRegistry = new CoreActionRegistry();
-
   // Initialize LLM client
   const llmClient = new LLMClient({
     provider: "anthropic",
@@ -67,9 +56,9 @@ async function main() {
   });
 
   const dreams = new ChainOfThought(llmClient, {
-    worldState: WORLD_GUIDE,
-    queriesAvailable: AVAILABLE_QUERIES,
-    availableActions: PROVIDER_EXAMPLES,
+    worldState: ETERNUM_CONTEXT,
+    queriesAvailable: "",
+    availableActions: "",
   });
 
   // Subscribe to events
