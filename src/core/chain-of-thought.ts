@@ -9,11 +9,15 @@ import { queryValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
+import { zodToJsonSchema } from "zod-to-json-schema";
+
+// Todo: remove these when we bundle
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
 import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
 import { StepManager, type Step, type StepType } from "./stepManager";
+import { z } from "zod";
 
 async function askUser(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -29,21 +33,14 @@ async function askUser(question: string): Promise<string> {
   });
 }
 
-/**
- * A robust Chain of Thought manager specifically designed
- * for game-oriented operations.
- */
 export class ChainOfThought extends EventEmitter {
   private stepManager: StepManager;
   private context: ChainOfThoughtContext;
-  private snapshots: ChainOfThoughtContext[]; // Optional for storing context snapshots
+  private snapshots: ChainOfThoughtContext[];
   private logger: Logger;
   private contextLogPath: string;
   goalManager: GoalManager;
-  /**
-   * Constructor initializes the ChainOfThought with an optional initial context.
-   * @param initialContext Optional context to bootstrap the chain of thought.
-   */
+
   constructor(
     private llmClient: LLMClient,
     initialContext?: ChainOfThoughtContext
@@ -834,11 +831,11 @@ export class ChainOfThought extends EventEmitter {
    * 3. Validates and parses the response
    * 4. Executes or applies the returned plan & actions
    */
-  public async callLLMAndProcessResponse(
+  public async callAndProcess(
     query: string,
     maxRetries: number = 3
   ): Promise<LLMStructuredResponse> {
-    this.logger.debug("callLLMAndProcessResponse", "Starting LLM call", {
+    this.logger.debug("callAndProcess", "Starting LLM call", {
       maxRetries,
     });
 
@@ -846,11 +843,11 @@ export class ChainOfThought extends EventEmitter {
 
     while (attempts < maxRetries) {
       // 1. Build the prompt
-      const prompt = this.buildLLMPrompt({ query });
+      const prompt = this.buildPrompt({ query });
 
       // 2. Send the prompt to the LLM and get a structured response
       try {
-        const llmRawResponse = await this.sendToLLM(prompt);
+        const llmRawResponse = await this.callModel(prompt);
 
         // Parse the response
         let llmResponse: LLMStructuredResponse;
@@ -858,7 +855,7 @@ export class ChainOfThought extends EventEmitter {
           llmResponse = JSON.parse(llmRawResponse) as LLMStructuredResponse;
         } catch (err) {
           this.logger.error(
-            "callLLMAndProcessResponse",
+            "callAndProcess",
             "Failed to parse LLM response as JSON",
             {
               error: err instanceof Error ? err.message : String(err),
@@ -872,7 +869,7 @@ export class ChainOfThought extends EventEmitter {
         // Validate the response structure
         if (!queryValidator(llmResponse)) {
           this.logger.error(
-            "callLLMAndProcessResponse",
+            "callAndProcess",
             "LLM response failed validation",
             {
               response: llmResponse,
@@ -890,21 +887,17 @@ export class ChainOfThought extends EventEmitter {
         // If we get here, everything worked
         return llmResponse;
       } catch (err) {
-        this.logger.error(
-          "callLLMAndProcessResponse",
-          "Error in LLM processing",
-          {
-            error: err instanceof Error ? err.message : String(err),
-            attempt: attempts + 1,
-          }
-        );
+        this.logger.error("callAndProcess", "Error in LLM processing", {
+          error: err instanceof Error ? err.message : String(err),
+          attempt: attempts + 1,
+        });
         attempts++;
       }
     }
 
     // If we get here, we've exhausted all retries
     const error = `Failed to get valid LLM response after ${maxRetries} attempts`;
-    this.logger.error("callLLMAndProcessResponse", error);
+    this.logger.error("callAndProcess", error);
     throw new Error(error);
   }
 
@@ -912,8 +905,8 @@ export class ChainOfThought extends EventEmitter {
    * Build a prompt that instructs the LLM to produce structured data.
    * You can adapt the instructions, tone, or style as needed.
    */
-  private buildLLMPrompt(tags: Record<string, string> = {}): string {
-    this.logger.debug("buildLLMPrompt", "Building LLM prompt");
+  private buildPrompt(tags: Record<string, string> = {}): string {
+    this.logger.debug("buildPrompt", "Building LLM prompt");
 
     // You can control how many steps or which steps to send
     // For example, let's just send the last few steps:
@@ -946,6 +939,7 @@ export class ChainOfThought extends EventEmitter {
     const prompt = `
     <global_context>
     <OBJECTIVE>
+    
     <GOAL>
     {{query}}
     </GOAL>
@@ -1041,8 +1035,8 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     return injectTags(prompt);
   }
 
-  private async sendToLLM(prompt: string): Promise<string> {
-    this.logger.debug("sendToLLM", "Sending prompt to LLM");
+  private async callModel(prompt: string): Promise<string> {
+    this.logger.debug("callModel", "Sending prompt to LLM");
 
     const response = await this.llmClient.analyze(prompt, {
       system: `"You are a reasoning system that outputs structured JSON only."`,
@@ -1057,11 +1051,11 @@ Make sure the JSON is valid. No extra text outside of the JSON.
       responseStr = JSON.stringify(response);
     } else {
       const error = `Unexpected response type from LLM: ${typeof response}`;
-      this.logger.error("sendToLLM", error);
+      this.logger.error("callModel", error);
       throw new Error(error);
     }
 
-    this.logger.debug("sendToLLM", "Received LLM response", {
+    this.logger.debug("callModel", "Received LLM response", {
       response: JSON.parse(responseStr),
     });
 
@@ -1085,7 +1079,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
 
       let currentIteration = 0;
       let isComplete = false;
-      const llmResponse = await this.callLLMAndProcessResponse(userQuery);
+      const llmResponse = await this.callAndProcess(userQuery);
       let pendingActions: CoTAction[] = [...llmResponse.actions];
 
       while (
@@ -1121,7 +1115,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
           try {
             const result = await this.executeAction(currentAction);
 
-            const updateContext = this.buildLLMPrompt({
+            const updateContext = this.buildPrompt({
               result,
             });
 

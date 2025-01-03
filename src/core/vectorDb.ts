@@ -441,8 +441,8 @@ export class ChromaVectorDB implements VectorDB {
   public async listRooms(): Promise<string[]> {
     const collections = await this.client.listCollections();
     return collections
-      .filter((c) => c.name.startsWith("room_"))
-      .map((c) => c.name.replace("room_", ""));
+      .filter((c: any) => c.name.startsWith("room_"))
+      .map((c: any) => c.name.replace("room_", ""));
   }
 
   public async getRoomMemoryCount(roomId: string): Promise<number> {
