@@ -1041,10 +1041,6 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     return injectTags(prompt);
   }
 
-  /**
-   * Placeholder function to send the prompt to the LLM.
-   * Replace with actual call to e.g. OpenAI or another provider.
-   */
   private async sendToLLM(prompt: string): Promise<string> {
     this.logger.debug("sendToLLM", "Sending prompt to LLM");
 
