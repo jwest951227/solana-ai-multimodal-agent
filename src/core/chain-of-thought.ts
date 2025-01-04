@@ -823,7 +823,6 @@ export class ChainOfThought extends EventEmitter {
     this.stepManager.removeStep(stepId);
   }
 
-  // --- LLM Integration Methods --------------------------------
   /**
    * High-level method that:
    * 1. Builds a prompt from the chain & context
