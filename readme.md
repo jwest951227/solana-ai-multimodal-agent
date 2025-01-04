@@ -2,6 +2,10 @@
 
 # Daydreams
 
+Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to play any onchain game by simply injecting context.
+
+It integrates directly with Eliza or other Agent frameworks via their plugin system.
+
 > ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated. This a broad project spamming many repos within dojo.
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
@@ -14,6 +18,7 @@ Roadmap:
 - [ ] Agent
 - [ ] Swarm Rooms
 - [ ] Integration with External Agents
+- [ ] Other chain integration
 
 # Getting Started
 
@@ -25,7 +30,7 @@ bun install
 bun start
 ```
 
-This will start the agent and you will be able to interact with it via the CLI.
+This will start the agent and you will be able to interact with it via the CLI, currently the only supported game is Eternum.
 
 ## 1. Overview
 
