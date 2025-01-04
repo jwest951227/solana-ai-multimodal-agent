@@ -14,7 +14,7 @@ Roadmap:
 
 - [x] Chain of Thought
 - [ ] Context Layers
-- [ ] Memory
+- [ ] Graph memory system
 - [ ] Agent
 - [ ] Swarm Rooms
 - [ ] Integration with External Agents
