@@ -2,15 +2,15 @@
 
 # Daydreams
 
-Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to play any onchain game by simply injecting context.
+Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to play any onchain game by simply injecting context. Base, Solana, Ethereum, Starknet, etc.
 
 It integrates directly with Eliza or other Agent frameworks via their plugin system.
 
-> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated. This a broad project spamming many repos within dojo.
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
 
-Roadmap:
+Roadmap (not in order):
 
 - [x] Chain of Thought
 - [ ] Context Layers
@@ -18,7 +18,7 @@ Roadmap:
 - [ ] Agent
 - [ ] Swarm Rooms
 - [ ] Integration with External Agents
-- [ ] Other chain integration
+- [ ] Create 'sleeves' abstract. Allowing dynamic context generation for any game or app.
 
 # Getting Started
 
