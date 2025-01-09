@@ -1,12 +1,21 @@
-![bg](./bg.png)
-
 # Daydreams
 
 Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to play any onchain game by simply injecting context. Base, Solana, Ethereum, Starknet, etc.
 
-It integrates directly with Eliza or other Agent frameworks via their plugin system.
+You can drop daydreams into Eliza or any typescript agent framework via their plugin system.
 
-> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration. Join the [dojo discord](https://discord.gg/KG9w9BmDrV) to stay updated.
+_How it works:_
+
+- Agent or human designs a Context (text file) about the game or app.
+- The Context is injected into the agent or fetched from the agents memory.
+- The agent then plays the game or app dynamically without any additional configuration.
+
+_Design directions:_
+
+- Daydreams should be as 'lite' as possible. We want to keep the codebase as small as possible, and have the agent dynamically generate the code it needs to play the game.
+- Daydreams should be as 'composable' as possible. It should be easy to compose together functions and tools.
+
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration.
 
 See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
 
