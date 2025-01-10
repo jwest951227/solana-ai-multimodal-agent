@@ -9,15 +9,13 @@ import { queryValidator } from "./validation";
 import { Logger, LogLevel } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
-import { zodToJsonSchema } from "zod-to-json-schema";
+import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
+import { StepManager, type Step, type StepType } from "./stepManager";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
-import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
-import { StepManager, type Step, type StepType } from "./stepManager";
-import { z } from "zod";
 
 async function askUser(question: string): Promise<string> {
   const rl = readline.createInterface({
