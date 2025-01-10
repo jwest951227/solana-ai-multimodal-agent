@@ -1,15 +1,7 @@
-import { Core } from "./core/core";
 import { ChromaVectorDB } from "./core/vectorDb";
-import { EventProcessor } from "./core/processor";
-import { RoomManager } from "./core/roomManager";
-import { CoreActionRegistry } from "./core/actions";
-import { LLMIntentExtractor } from "./core/intent";
-import { TwitterClient } from "./clients/twitterClient";
 import { env } from "./core/env";
 import { LogLevel } from "./core/logger";
 import { LLMClient } from "./core/llm-client";
-import { defaultCharacter } from "./core/character";
-import { Consciousness } from "./core/consciousness";
 import { ChainOfThought } from "./core/chain-of-thought";
 import { ETERNUM_CONTEXT } from "./core/contexts";
 import * as readline from "readline";
