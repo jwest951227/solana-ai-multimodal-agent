@@ -34,9 +34,10 @@ Roadmap (not in order):
 You must have bun installed.
 
 ```bash
-bun install
+pnpm i
 
-bun start
+# we use bun as it is nice for development
+bun dev
 ```
 
 This will start the agent and you will be able to interact with it via the CLI, currently the only supported game is Eternum.

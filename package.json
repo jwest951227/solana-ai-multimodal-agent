@@ -1,29 +1,7 @@
 {
   "name": "daydreams",
-  "module": "index.ts",
-  "type": "module",
-  "devDependencies": {
-    "@types/bun": "latest"
-  },
+  "version": "0.0.1",
   "scripts": {
-    "start": "bun run src/main.ts",
-    "test": "vitest"
-  },
-  "peerDependencies": {
-    "typescript": "^5.0.0"
-  },
-  "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
-    "agent-twitter-client": "^0.0.16",
-    "ajv": "^8.17.1",
-    "chalk": "^5.4.1",
-    "chromadb": "^1.9.4",
-    "chromadb-default-embed": "^2.13.2",
-    "openai": "^4.76.0",
-    "starknet": "^6.11.0",
-    "uuid": "^11.0.3",
-    "vitest": "^2.1.8",
-    "zod": "^3.24.1",
-    "zod-to-json-schema": "^3.24.1"
+    "dev": "bun run packages/core/src/main.ts"
   }
 }
