@@ -69,7 +69,6 @@ export class ChainOfThought extends EventEmitter {
     this.goalManager = new GoalManager();
   }
 
-  // Add new method for strategic planning
   public async planStrategy(objective: string): Promise<void> {
     this.logger.debug("planStrategy", "Planning strategy for objective", {
       objective,
@@ -160,7 +159,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // Add new method to get prioritized goals
   private getPrioritizedGoals(): any[] {
     const readyGoals = this.goalManager.getReadyGoals();
 
@@ -182,7 +180,6 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
-  // Add method to check if goal execution is possible
   private async canExecuteGoal(
     goal: any
   ): Promise<{ possible: boolean; reason: string }> {
@@ -235,7 +232,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // Add method to refine a goal into more specific sub-goals
   private async refineGoal(goal: any): Promise<void> {
     const prompt = `
       <goal_refinement>
@@ -292,7 +288,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // Replace existing executeNextGoal with this version
   public async executeNextGoal(): Promise<void> {
     const prioritizedGoals = this.getPrioritizedGoals();
 
@@ -378,7 +373,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // Add new method to handle goal completion
   private async handleGoalCompletion(goal: any): Promise<void> {
     this.goalManager.updateGoalStatus(goal.id, "completed");
 
@@ -417,7 +411,6 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
-  // Add new method to determine context updates after goal completion
   private async determineContextUpdates(
     goal: any
   ): Promise<Partial<ChainOfThoughtContext> | null> {
@@ -453,7 +446,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // Add new method to handle goal failure
   private async handleGoalFailure(
     goal: any,
     error: Error | unknown
@@ -471,7 +463,6 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
-  // Add new method to validate goal success
   private async validateGoalSuccess(goal: any): Promise<boolean> {
     const prompt = `
       <goal_validation>
