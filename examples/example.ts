@@ -5,14 +5,14 @@
 // 1. Define a new context for the agent. Similar to ETERNUM_CONTEXT
 // 2. Inject the next context into the agent
 
-import { ChromaVectorDB } from "../packages/core/src/core/vectorDb";
+import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { env } from "../packages/core/src/core/env";
 
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
 import { ETERNUM_CONTEXT } from "./eternum-context";
 import * as readline from "readline";
-import { type GoalStatus } from "../packages/core/src/core/goalManager";
+import { type GoalStatus } from "../packages/core/src/core/goal-manager";
 import chalk from "chalk";
 import { LogLevel } from "../packages/core/src/types";
 

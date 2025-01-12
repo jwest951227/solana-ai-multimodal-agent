@@ -9,8 +9,8 @@ import type { IntentExtractor } from "./intent";
 import { Logger } from "./logger";
 import { EventProcessor, type ProcessedIntent } from "./processor";
 import { Room } from "./room";
-import { RoomManager } from "./roomManager";
-import { type VectorDB } from "./vectorDb";
+import { RoomManager } from "./room-manager";
+import { type VectorDB } from "./vector-db";
 import { LogLevel } from "../types";
 export interface EventEmitter<T extends { type: string }> {
   emit(event: T): Promise<void>;

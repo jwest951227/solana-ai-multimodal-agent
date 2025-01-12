@@ -4,7 +4,7 @@ import { type ActionRegistry } from "./actions";
 import { type IntentExtractor } from "./intent";
 import { Logger } from "./logger";
 import { type Room } from "./room";
-import { type VectorDB } from "./vectorDb";
+import { type VectorDB } from "./vector-db";
 import { type Character, defaultCharacter } from "./character";
 import { type SearchResult } from "../types";
 import { LogLevel } from "../types";

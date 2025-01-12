@@ -2,7 +2,7 @@ import { Logger } from "./logger";
 import { LLMClient } from "./llm-client";
 import { type Core } from "./core";
 import { type Room } from "./room";
-import { type RoomManager } from "./roomManager";
+import { type RoomManager } from "./room-manager";
 import { LogLevel } from "../types";
 
 export interface Thought {

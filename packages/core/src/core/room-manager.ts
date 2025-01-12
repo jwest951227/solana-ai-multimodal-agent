@@ -1,6 +1,6 @@
 import { Room } from "./room";
 import type { Memory, RoomMetadata } from "./room";
-import { ChromaVectorDB } from "./vectorDb";
+import { ChromaVectorDB } from "./vector-db";
 import { Logger } from "./logger";
 import { LogLevel } from "../types";
 

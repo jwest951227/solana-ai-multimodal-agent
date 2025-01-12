@@ -9,7 +9,7 @@ import { queryValidator } from "./validation";
 import { Logger } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
-import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
+import { GoalManager, type HorizonType, type GoalStatus } from "./goal-manager";
 import { StepManager, type Step, type StepType } from "./stepManager";
 import { LogLevel } from "../types";
 
