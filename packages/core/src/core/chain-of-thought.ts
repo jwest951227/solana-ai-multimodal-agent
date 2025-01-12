@@ -1125,10 +1125,6 @@ Make sure the JSON is valid. No extra text outside of the JSON.
 4. The result of the last action - Verify the outcome was correct
 5. Values will always be in hexadecimal so convert them to decimal for verification
 
-IMPORTANT RESOURCE RULES:
-- If a required resource has 0 balance, mark the goal as complete with failure reason
-- Do not continue planning if prerequisites cannot be met
-
 For each verification:
 - Check preconditions were met  
 - Validate the execution was proper
