@@ -16,6 +16,7 @@ import { StepManager, type Step, type StepType } from "./stepManager";
 import * as fs from "fs";
 import * as path from "path";
 import * as readline from "readline";
+import { injectTags } from "./utils";
 
 async function askUser(question: string): Promise<string> {
   const rl = readline.createInterface({
@@ -901,28 +902,6 @@ export class ChainOfThought extends EventEmitter {
     const lastSteps = JSON.stringify(this.stepManager.getSteps());
 
     // Replace any {{tag}} with the provided value or leave unchanged
-    const injectTags = (text: string): string => {
-      let result = text;
-      const tagMatches = text.match(/\{\{(\w+)\}\}/g) || [];
-      const uniqueTags = [...new Set(tagMatches)];
-
-      uniqueTags.forEach((tag) => {
-        const tagName = tag.slice(2, -2);
-        const values: string[] = [];
-        if (tags[tagName]) {
-          // Find all occurrences and collect values
-          tagMatches.forEach((match) => {
-            if (match === tag) {
-              values.push(tags[tagName]);
-            }
-          });
-          // Replace with concatenated values if multiple occurrences
-          result = result.replace(new RegExp(tag, "g"), values.join("\n"));
-        }
-      });
-
-      return result;
-    };
 
     const prompt = `
     <global_context>
@@ -1020,7 +999,7 @@ Make sure the JSON is valid. No extra text outside of the JSON.
 </global_context>
 `;
 
-    return injectTags(prompt);
+    return injectTags(tags, prompt);
   }
 
   private async callModel(prompt: string): Promise<string> {
