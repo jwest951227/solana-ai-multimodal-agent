@@ -31,7 +31,7 @@ Roadmap (not in order):
 
 # Getting Started
 
-You must have bun installed.
+You must have bun installed. Then
 
 ```bash
 pnpm i
@@ -39,8 +39,6 @@ pnpm i
 # we use bun as it is nice for development
 bun dev
 ```
-
-This will start the example agent in the examples folder. You can modify the example to suit your needs.
 
 ## 1. Overview
 
