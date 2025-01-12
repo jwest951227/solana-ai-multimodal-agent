@@ -1,37 +1,22 @@
 import type { LLMClient } from "./llm-client";
 import type {
+  ActionHandler,
   ChainOfThoughtContext,
   CoTAction,
-  CoTTransaction,
   LLMStructuredResponse,
 } from "../types";
 import { queryValidator } from "./validation";
 import { Logger } from "./logger";
-import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
 import { GoalManager, type HorizonType, type GoalStatus } from "./goal-manager";
 import { StepManager, type Step, type StepType } from "./step-manager";
 import { LogLevel } from "../types";
+import { injectTags } from "./utils";
+import { systemPromptAction } from "./actions/system-prompt";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";
 import * as path from "path";
-import * as readline from "readline";
-import { injectTags } from "./utils";
-
-async function askUser(question: string): Promise<string> {
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  return new Promise((resolve) => {
-    rl.question(`${question}\nYour response: `, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-  });
-}
 
 export class ChainOfThought extends EventEmitter {
   private stepManager: StepManager;
@@ -41,11 +26,17 @@ export class ChainOfThought extends EventEmitter {
   private contextLogPath: string;
   goalManager: GoalManager;
 
+  private actionRegistry = new Map<string, ActionHandler>();
+  private actionExamples = new Map<
+    string,
+    { description: string; example: string }
+  >();
+
   constructor(
     private llmClient: LLMClient,
     initialContext?: ChainOfThoughtContext
   ) {
-    super(); // Initialize EventEmitter
+    super();
     this.stepManager = new StepManager();
     this.context = initialContext ?? {
       worldState: "",
@@ -69,6 +60,12 @@ export class ChainOfThought extends EventEmitter {
     this.logContext("INITIAL_CONTEXT");
 
     this.goalManager = new GoalManager();
+
+    this.registerDefaultActions();
+  }
+
+  private registerDefaultActions() {
+    this.actionRegistry.set("SYSTEM_PROMPT", systemPromptAction);
   }
 
   public async planStrategy(objective: string): Promise<void> {
@@ -668,6 +665,24 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
+   * Allows registration of a custom action type and handler.
+   * e.g. chainOfThought.registerAction("SEND_EMAIL", sendEmailHandler);
+   */
+  public registerAction(
+    type: string,
+    handler: ActionHandler,
+    example?: { description: string; example: string }
+  ): void {
+    this.logger.debug("registerAction", "Registering custom action", { type });
+    this.actionRegistry.set(type, handler);
+
+    // Store the example snippet if provided
+    if (example) {
+      this.actionExamples.set(type, example);
+    }
+  }
+
+  /**
    * A central method to handle CoT actions that might be triggered by the LLM.
    * @param action The action to be executed.
    */
@@ -675,7 +690,7 @@ export class ChainOfThought extends EventEmitter {
     this.logger.debug("executeAction", "Executing action", { action });
     this.emit("action:start", action);
 
-    // Add action step at the start
+    // Add action step
     const actionStep = this.addStep(
       `Executing action: ${action.type}`,
       "action",
@@ -683,29 +698,18 @@ export class ChainOfThought extends EventEmitter {
       { action }
     );
 
-    console.log("log", action);
-
     try {
-      const result = await (async () => {
-        switch (action.type) {
-          case "SYSTEM_PROMPT":
-            // Handle system prompt by asking user
-            const userResponse = await askUser(action.payload.prompt);
-            return userResponse;
+      // Lookup the handler in our registry
+      const handler = this.actionRegistry.get(action.type);
 
-          case "GRAPHQL_FETCH":
-            return await this.graphqlFetchAction(action.payload);
+      if (!handler) {
+        // No handler found
+        const errorMsg = `No handler registered for action type "${action.type}"`;
+        throw new Error(errorMsg);
+      }
 
-          case "EXECUTE_TRANSACTION":
-            return this.runTransaction(action.payload as CoTTransaction);
-
-          default:
-            this.logger.warn("executeAction", "Unknown action type", {
-              actionType: action.type,
-            });
-            return "Unknown action type: " + action.type;
-        }
-      })();
+      // If found, run it
+      const result = await handler(action, this);
 
       // Update the action step with the result
       this.stepManager.updateStep(actionStep.id, {
@@ -732,58 +736,9 @@ export class ChainOfThought extends EventEmitter {
         content: `Action failed: ${error}`,
         meta: { ...actionStep.meta, error },
       });
-
       this.emit("action:error", { action, error });
       throw error;
     }
-  }
-
-  private async graphqlFetchAction(
-    payload?: Record<string, any>
-  ): Promise<string> {
-    this.logger.debug("graphqlFetchAction", "Executing GraphQL fetch", {
-      payload,
-    });
-
-    // Example of expected fields in the payload
-    const { query, variables } = payload || {};
-
-    const result = await fetchData(query, variables);
-
-    const resultStr =
-      `query: ` + query + `\n\nresult: ` + JSON.stringify(result, null, 2);
-
-    return resultStr;
-  }
-
-  /**
-   * Execute a "transaction" that can modify the chain of thought, the context,
-   * or even the game state. The specifics are up to your design.
-   */
-  private async runTransaction(transaction: CoTTransaction): Promise<string> {
-    this.logger.debug("runTransaction", "Running transaction", { transaction });
-
-    // Add step describing the transaction
-
-    const result = await executeStarknetTransaction(transaction);
-
-    const resultStr = `Transaction executed successfully: ${JSON.stringify(
-      result,
-      null,
-      2
-    )}`;
-
-    this.addStep(
-      `Running transaction: ${transaction.contractAddress}`,
-      "action",
-      ["transaction"],
-      {
-        transactionData: transaction.calldata,
-        result: resultStr,
-      }
-    );
-
-    return resultStr;
   }
 
   /**
@@ -892,6 +847,16 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
+   * Returns a formatted string listing all available actions registered in the action registry
+   */
+  private getAvailableActions(): string {
+    const actions = Array.from(this.actionRegistry.keys());
+    return `Available actions:\n${actions
+      .map((action) => `- ${action}`)
+      .join("\n")}`;
+  }
+
+  /**
    * Build a prompt that instructs the LLM to produce structured data.
    * You can adapt the instructions, tone, or style as needed.
    */
@@ -901,6 +866,17 @@ export class ChainOfThought extends EventEmitter {
     // You can control how many steps or which steps to send
     // For example, let's just send the last few steps:
     const lastSteps = JSON.stringify(this.stepManager.getSteps());
+
+    const actionExamplesText = Array.from(this.actionExamples.entries())
+      .map(([type, { description, example }]) => {
+        return `
+Action Type: ${type}
+Description: ${description}
+Example JSON:
+${example}
+`;
+      })
+      .join("\n\n");
 
     // Replace any {{tag}} with the provided value or leave unchanged
 
@@ -964,32 +940,30 @@ ${this.context.availableActions}
 Return a JSON array where each step contains:
 - plan: A short explanation of what you will do
 - meta: A metadata object with requirements for the step. Find this in the context.
-- actions: A list of actions to be executed. You can either use GRAPHQL_FETCH or EXECUTE_TRANSACTION. You must only use these.
+- actions: A list of actions to be executed. You can either use ${this.getAvailableActions()}. You must only use these.
+
+<AVAILABLE_ACTIONS>
+Below is a list of actions you may use. For each action, 
+the "payload" must follow the indicated structure exactly.
+
+${actionExamplesText}
+</AVAILABLE_ACTIONS>
 
 {{output_format_details}}
 
-Provide a JSON response with the following structure (this is an example only):
+Provide a JSON response with the following structure (this is an example only, use the available actions to determine the structure):
 
 {
   "plan": "A short explanation of what you will do",
       "meta": {
       "requirements": {},
-  "actions": [
-        {
-          type: "GRAPHQL_FETCH",
-          payload: {
-            query: "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } }",
-          },
-        },
-        {
-          type: "EXECUTE_TRANSACTION",
-          payload: {
-              contractAddress: "0x1234567890abcdef",
-              entrypoint: "execute",
-              calldata: [1, 2, 3],
-          },
-        },
+        "actions": [
+    {
+      "type": "ACTION_TYPE",
+      "payload": { ... }
+    }
   ]
+
 }
 
 </OUTPUT_FORMAT>

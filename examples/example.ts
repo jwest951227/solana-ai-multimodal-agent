@@ -15,6 +15,8 @@ import * as readline from "readline";
 import { type GoalStatus } from "../packages/core/src/core/goal-manager";
 import chalk from "chalk";
 import { LogLevel } from "../packages/core/src/types";
+import { starknetTransactionAction } from "../packages/core/src/core/actions/starknet-transaction";
+import { graphqlAction } from "../packages/core/src/core/actions/graphql";
 
 async function getCliInput(prompt: string): Promise<string> {
   const rl = readline.createInterface({
@@ -59,6 +61,24 @@ async function main() {
     worldState: ETERNUM_CONTEXT,
     queriesAvailable: "",
     availableActions: "",
+  });
+
+  // Register actions
+  dreams.registerAction("EXECUTE_TRANSACTION", starknetTransactionAction, {
+    description: "Execute a transaction on the Starknet blockchain",
+    example: JSON.stringify({
+      contractAddress: "0x1234567890abcdef",
+      entrypoint: "execute",
+      calldata: [1, 2, 3],
+    }),
+  });
+
+  dreams.registerAction("GRAPHQL_FETCH", graphqlAction, {
+    description: "Fetch data from the Eternum GraphQL API",
+    example: JSON.stringify({
+      query:
+        "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } }",
+    }),
   });
 
   // Subscribe to events

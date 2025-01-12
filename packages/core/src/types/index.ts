@@ -1,3 +1,5 @@
+import type { ChainOfThought } from "../core/chain-of-thought";
+
 // Base event type
 export interface BaseEvent {
   type: string;
@@ -193,3 +195,9 @@ export interface LogEntry {
   message: string;
   data?: any;
 }
+
+export type ActionHandler = (
+  action: CoTAction,
+  chain: ChainOfThought,
+  example?: { description: string; example: string }
+) => Promise<string>;
