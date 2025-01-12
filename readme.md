@@ -40,7 +40,7 @@ pnpm i
 bun dev
 ```
 
-This will start the agent and you will be able to interact with it via the CLI, currently the only supported game is Eternum.
+This will start the example agent in the examples folder. You can modify the example to suit your needs.
 
 ## 1. Overview
 
