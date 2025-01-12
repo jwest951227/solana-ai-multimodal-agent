@@ -10,7 +10,7 @@ import { Logger } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
 import { GoalManager, type HorizonType, type GoalStatus } from "./goal-manager";
-import { StepManager, type Step, type StepType } from "./stepManager";
+import { StepManager, type Step, type StepType } from "./step-manager";
 import { LogLevel } from "../types";
 
 // Todo: remove these when we bundle

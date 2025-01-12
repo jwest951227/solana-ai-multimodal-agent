@@ -7,7 +7,7 @@ import {
   type TweetRequest,
   type TwitterOutgoingEvent,
 } from "../types";
-import { BaseClient } from "./baseClient";
+import { BaseClient } from "./base-client";
 
 interface TwitterCredentials {
   username: string;
