@@ -1,26 +1,6 @@
-export enum LogLevel {
-  ERROR = 0,
-  WARN = 1,
-  INFO = 2,
-  DEBUG = 3,
-  TRACE = 4,
-}
+import { LogLevel } from "../types";
 
-export interface LoggerConfig {
-  level: LogLevel;
-  enableTimestamp?: boolean;
-  enableColors?: boolean;
-  logToFile?: boolean;
-  logPath?: string;
-}
-
-export interface LogEntry {
-  level: LogLevel;
-  timestamp: Date;
-  context: string;
-  message: string;
-  data?: any;
-}
+import type { LogEntry, LoggerConfig } from "../types";
 
 export class Logger {
   private config: Required<LoggerConfig>;

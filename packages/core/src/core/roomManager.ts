@@ -1,7 +1,8 @@
 import { Room } from "./room";
 import type { Memory, RoomMetadata } from "./room";
 import { ChromaVectorDB } from "./vectorDb";
-import { Logger, LogLevel } from "./logger";
+import { Logger } from "./logger";
+import { LogLevel } from "../types";
 
 export class RoomManager {
   private logger: Logger;

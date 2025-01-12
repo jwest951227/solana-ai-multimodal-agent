@@ -6,7 +6,6 @@ const envSchema = z.object({
   TWITTER_PASSWORD: z.string(),
   TWITTER_EMAIL: z.string(),
   OPENAI_API_KEY: z.string(),
-  //   DISCORD_TOKEN: z.string(),
   CHROMA_URL: z.string().default("http://localhost:8000"),
   STARKNET_RPC_URL: z.string(),
   STARKNET_ADDRESS: z.string(),

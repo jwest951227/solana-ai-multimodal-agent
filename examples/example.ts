@@ -1,12 +1,20 @@
-import { ChromaVectorDB } from "./core/vectorDb";
-import { env } from "./core/env";
-import { LogLevel } from "./core/logger";
-import { LLMClient } from "./core/llm-client";
-import { ChainOfThought } from "./core/chain-of-thought";
-import { ETERNUM_CONTEXT } from "./core/contexts";
+// This is a simple example of how to use the Daydreams package
+// It runs a simple goal-based agent that can be used to plan and execute goals
+
+// Who to customise:
+// 1. Define a new context for the agent. Similar to ETERNUM_CONTEXT
+// 2. Inject the next context into the agent
+
+import { ChromaVectorDB } from "../packages/core/src/core/vectorDb";
+import { env } from "../packages/core/src/core/env";
+
+import { LLMClient } from "../packages/core/src/core/llm-client";
+import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
+import { ETERNUM_CONTEXT } from "./eternum-context";
 import * as readline from "readline";
-import { type GoalStatus } from "./core/goalManager";
+import { type GoalStatus } from "../packages/core/src/core/goalManager";
 import chalk from "chalk";
+import { LogLevel } from "../packages/core/src/types";
 
 async function getCliInput(prompt: string): Promise<string> {
   const rl = readline.createInterface({

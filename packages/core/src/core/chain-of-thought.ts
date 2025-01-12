@@ -4,13 +4,14 @@ import type {
   CoTAction,
   CoTTransaction,
   LLMStructuredResponse,
-} from "./validation";
+} from "../types";
 import { queryValidator } from "./validation";
-import { Logger, LogLevel } from "./logger";
+import { Logger } from "./logger";
 import { executeStarknetTransaction, fetchData } from "./providers";
 import { EventEmitter } from "events";
 import { GoalManager, type HorizonType, type GoalStatus } from "./goalManager";
 import { StepManager, type Step, type StepType } from "./stepManager";
+import { LogLevel } from "../types";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";

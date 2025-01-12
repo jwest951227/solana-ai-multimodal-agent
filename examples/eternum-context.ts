@@ -1,3 +1,5 @@
+// This is all you need to inject into the LLM
+
 export const ETERNUM_CONTEXT = `
 
 Your Realms are:

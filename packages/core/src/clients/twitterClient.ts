@@ -6,7 +6,7 @@ import {
   type TweetReceived,
   type TweetRequest,
   type TwitterOutgoingEvent,
-} from "../types/events";
+} from "../types";
 import { BaseClient } from "./baseClient";
 
 interface TwitterCredentials {

@@ -1,5 +1,5 @@
 import { type Client, type Core } from "../core/core";
-import { type CoreEvent } from "../types/events";
+import { type CoreEvent } from "../types";
 
 export abstract class BaseClient implements Client {
   protected isListening = false;

@@ -1,17 +1,17 @@
 import {
   type ClientEvent,
   type CoreEvent,
-  type DiscordMessageReceived,
+  type LoggerConfig,
   type TweetReceived,
-} from "../types/events";
+} from "../types";
 import type { ActionRegistry } from "./actions";
 import type { IntentExtractor } from "./intent";
-import { Logger, type LoggerConfig, LogLevel } from "./logger";
+import { Logger } from "./logger";
 import { EventProcessor, type ProcessedIntent } from "./processor";
 import { Room } from "./room";
 import { RoomManager } from "./roomManager";
 import { type VectorDB } from "./vectorDb";
-
+import { LogLevel } from "../types";
 export interface EventEmitter<T extends { type: string }> {
   emit(event: T): Promise<void>;
   on<E extends T>(

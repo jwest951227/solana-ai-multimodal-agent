@@ -1,5 +1,5 @@
 {
-  "name": "daydreams",
+  "name": "@daydreams/core",
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
@@ -16,7 +16,6 @@
     "@anthropic-ai/sdk": "^0.32.1",
     "agent-twitter-client": "^0.0.16",
     "ajv": "^8.17.1",
-    "chalk": "^5.4.1",
     "chromadb": "^1.9.4",
     "chromadb-default-embed": "^2.13.2",
     "openai": "^4.76.0",

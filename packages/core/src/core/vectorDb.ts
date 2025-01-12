@@ -1,14 +1,8 @@
 import { ChromaClient, OpenAIEmbeddingFunction } from "chromadb";
 import { env } from "./env";
-import { Logger, LogLevel } from "./logger";
+import { Logger } from "./logger";
 import { Room } from "./room";
-
-export interface SearchResult {
-  id: string;
-  content: string;
-  similarity: number;
-  metadata?: Record<string, any>;
-}
+import { LogLevel, type SearchResult } from "../types";
 
 export interface VectorDB {
   findSimilar(

@@ -2,6 +2,11 @@
   "name": "daydreams",
   "version": "0.0.1",
   "scripts": {
-    "dev": "bun run packages/core/src/main.ts"
+    "dev": "bun run examples/example.ts"
+  },
+  "dependencies": {
+    "@types/node": "^22.10.5",
+    "chalk": "^5.4.1",
+    "readline": "^1.3.0"
   }
 }

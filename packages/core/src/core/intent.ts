@@ -1,7 +1,7 @@
 import { LLMClient } from "./llm-client";
-import { Logger, LogLevel } from "./logger";
+import { Logger } from "./logger";
 import { type ProcessedIntent } from "./processor";
-
+import { LogLevel } from "../types";
 export interface Intent {
   type: string;
   confidence: number;
