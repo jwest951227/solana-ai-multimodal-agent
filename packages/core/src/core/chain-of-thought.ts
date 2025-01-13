@@ -474,7 +474,7 @@ export class ChainOfThought extends EventEmitter {
       ${JSON.stringify(this.context, null, 2)}
       
       Recent Steps:
-      ${JSON.stringify(this.stepManager.getSteps().slice(-5), null, 2)}
+      ${JSON.stringify(this.stepManager.getSteps().slice(-10), null, 2)}
       
       Based on the success criteria and current context, has this goal been achieved?
       Return only a JSON object with: { "success": boolean, "reason": string }
