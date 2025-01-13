@@ -716,7 +716,7 @@ export class ChainOfThought extends EventEmitter {
           this.actionSchemas.get(action.type) as AnySchema
         );
         if (!validate(action.payload)) {
-          throw new Error("Invalid action result");
+          return "Invalid action result - try again";
         }
       }
 
