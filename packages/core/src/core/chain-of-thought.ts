@@ -716,7 +716,7 @@ export class ChainOfThought extends EventEmitter {
           this.actionSchemas.get(action.type) as AnySchema
         );
         if (!validate(action.payload)) {
-          return "Invalid action result - try again";
+          return "Invalid action result - try schema validation again";
         }
       }
 
@@ -726,7 +726,7 @@ export class ChainOfThought extends EventEmitter {
       if (!handler) {
         // No handler found
         const errorMsg = `No handler registered for action type "${action.type}"`;
-        throw new Error(errorMsg);
+        return errorMsg;
       }
 
       // If found, run it
