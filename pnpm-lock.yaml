@@ -11,6 +11,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.10.5
+      ajv:
+        specifier: ^8.17.1
+        version: 8.17.1
       chalk:
         specifier: ^5.4.1
         version: 5.4.1

@@ -1,3 +1,4 @@
+import type { JSONSchemaType } from "ajv";
 import type { ChainOfThought } from "../core/chain-of-thought";
 
 // Base event type

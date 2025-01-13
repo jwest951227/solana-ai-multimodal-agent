@@ -13,10 +13,14 @@ import { StepManager, type Step, type StepType } from "./step-manager";
 import { LogLevel } from "../types";
 import { injectTags } from "./utils";
 import { systemPromptAction } from "./actions/system-prompt";
+import Ajv from "ajv";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";
 import * as path from "path";
+import type { AnySchema, JSONSchemaType } from "ajv";
+
+const ajv = new Ajv();
 
 export class ChainOfThought extends EventEmitter {
   private stepManager: StepManager;
@@ -31,6 +35,8 @@ export class ChainOfThought extends EventEmitter {
     string,
     { description: string; example: string }
   >();
+
+  private actionSchemas = new Map<string, JSONSchemaType<any>>();
 
   constructor(
     private llmClient: LLMClient,
@@ -671,7 +677,8 @@ export class ChainOfThought extends EventEmitter {
   public registerAction(
     type: string,
     handler: ActionHandler,
-    example?: { description: string; example: string }
+    example?: { description: string; example: string },
+    schema?: JSONSchemaType<any>
   ): void {
     this.logger.debug("registerAction", "Registering custom action", { type });
     this.actionRegistry.set(type, handler);
@@ -679,6 +686,10 @@ export class ChainOfThought extends EventEmitter {
     // Store the example snippet if provided
     if (example) {
       this.actionExamples.set(type, example);
+    }
+
+    if (schema) {
+      this.actionSchemas.set(type, schema);
     }
   }
 
@@ -699,6 +710,16 @@ export class ChainOfThought extends EventEmitter {
     );
 
     try {
+      // Validate the result against the schema
+      if (this.actionSchemas.has(action.type)) {
+        const validate = ajv.compile(
+          this.actionSchemas.get(action.type) as AnySchema
+        );
+        if (!validate(action.payload)) {
+          throw new Error("Invalid action result");
+        }
+      }
+
       // Lookup the handler in our registry
       const handler = this.actionRegistry.get(action.type);
 
