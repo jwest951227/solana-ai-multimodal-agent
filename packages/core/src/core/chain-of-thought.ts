@@ -670,10 +670,6 @@ export class ChainOfThought extends EventEmitter {
     return this.snapshots;
   }
 
-  /**
-   * Allows registration of a custom action type and handler.
-   * e.g. chainOfThought.registerAction("SEND_EMAIL", sendEmailHandler);
-   */
   public registerAction(
     type: string,
     handler: ActionHandler,

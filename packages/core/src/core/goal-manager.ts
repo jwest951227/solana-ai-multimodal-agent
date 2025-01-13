@@ -22,9 +22,23 @@ interface Goal {
   completed_at?: number;
   progress?: number; // 0-100 to track partial completion
   meta?: Record<string, any>;
+
+  /**
+   * A numeric measure of how successful this goal was completed.
+   * You can define any scale you like: e.g. 0-1, or 0-100, or a positive/negative integer.
+   */
+  outcomeScore?: number;
+
+  /**
+   * Optional history of scores over time, if you want to track multiple attempts or partial runs.
+   */
+  scoreHistory?: Array<{
+    timestamp: number;
+    score: number;
+    comment?: string;
+  }>;
 }
 
-// Add GoalManager class
 export class GoalManager {
   private goals: Map<string, Goal> = new Map();
 
@@ -45,6 +59,10 @@ export class GoalManager {
     return newGoal;
   }
 
+  /**
+   * Update the status of a goal. If marking it "completed",
+   * also sets completed_at, progress=100, and updates parent/subgoal statuses.
+   */
   public updateGoalStatus(id: string, status: GoalStatus): void {
     const goal = this.goals.get(id);
     if (!goal) return;
@@ -74,7 +92,7 @@ export class GoalManager {
       (completedSubgoals / parent.subgoals.length) * 100
     );
 
-    // If all subgoals are complete, mark parent as ready
+    // If all subgoals are complete, mark parent as ready (or completed if you prefer)
     if (parent.progress === 100) {
       parent.status = "ready";
     }
@@ -102,6 +120,10 @@ export class GoalManager {
       .sort((a, b) => b.priority - a.priority);
   }
 
+  /**
+   * Return "ready" or effectively unlocked goals, optionally filtering by horizon.
+   * Also checks if dependencies are completed.
+   */
   public getReadyGoals(horizon?: HorizonType): Goal[] {
     return Array.from(this.goals.values())
       .filter((goal) => {
@@ -129,7 +151,6 @@ export class GoalManager {
         hierarchy.push(...this.getGoalHierarchy(subId));
       });
     }
-
     return hierarchy;
   }
 
@@ -144,12 +165,12 @@ export class GoalManager {
       );
   }
 
-  // Add method to get a single goal by ID
+  // Single-goal retrieval
   public getGoalById(id: string): Goal | undefined {
     return this.goals.get(id);
   }
 
-  // Add method to get child goals of a parent goal
+  // Retrieve child goals of a parent
   public getChildGoals(parentId: string): Goal[] {
     const parent = this.goals.get(parentId);
     if (!parent || !parent.subgoals) return [];
@@ -159,14 +180,14 @@ export class GoalManager {
       .filter((goal): goal is Goal => goal !== undefined);
   }
 
-  // Add method to get goals that depend on a given goal
+  // Goals that depend on a given goal
   public getDependentGoals(goalId: string): Goal[] {
     return Array.from(this.goals.values()).filter((goal) =>
       goal.dependencies?.includes(goalId)
     );
   }
 
-  // Add method to check if all prerequisites are met for a goal
+  // Check if a goal's dependencies are all met
   public arePrerequisitesMet(goalId: string): boolean {
     const goal = this.goals.get(goalId);
     if (!goal || !goal.dependencies) return true;
@@ -177,14 +198,14 @@ export class GoalManager {
     });
   }
 
-  // Add method to update goal progress
+  // Update goal progress (0-100)
   public updateGoalProgress(id: string, progress: number): void {
     const goal = this.goals.get(id);
     if (!goal) return;
 
     goal.progress = Math.min(100, Math.max(0, progress));
 
-    // If progress is 100%, mark as ready for completion validation
+    // If progress is 100%, mark as ready (or completed if you prefer)
     if (goal.progress === 100 && goal.status !== "completed") {
       goal.status = "ready";
     }
@@ -195,22 +216,19 @@ export class GoalManager {
     }
   }
 
-  // Add method to get all goals in a specific status
+  // Retrieve all goals in a given status
   public getGoalsByStatus(status: GoalStatus): Goal[] {
     return Array.from(this.goals.values())
       .filter((goal) => goal.status === status)
       .sort((a, b) => b.priority - a.priority);
   }
 
-  // Add method to check if a goal can be refined
+  // Check if a goal can be refined (example logic)
   public canBeRefined(goalId: string): boolean {
     const goal = this.goals.get(goalId);
     if (!goal) return false;
 
-    // Goals can be refined if they are:
-    // 1. Not short-term goals
-    // 2. Don't already have subgoals
-    // 3. Are not completed or failed
+    // Example conditions for refinement
     return (
       goal.horizon !== "short" &&
       (!goal.subgoals || goal.subgoals.length === 0) &&
@@ -218,7 +236,7 @@ export class GoalManager {
     );
   }
 
-  // Add method to mark a goal and its subgoals as blocked
+  // Block a goal (and subgoals) recursively
   public blockGoalHierarchy(goalId: string, reason: string): void {
     const goal = this.goals.get(goalId);
     if (!goal) return;
@@ -237,7 +255,7 @@ export class GoalManager {
     }
   }
 
-  // Add method to get the full path to root for a goal
+  // Get full path from root to this goal
   public getGoalPath(goalId: string): Goal[] {
     const path: Goal[] = [];
     let currentGoal = this.goals.get(goalId);
@@ -247,16 +265,15 @@ export class GoalManager {
       if (!currentGoal.parentGoal) break;
       currentGoal = this.goals.get(currentGoal.parentGoal);
     }
-
     return path;
   }
 
-  // Add method to estimate completion time for a goal
+  // Rough estimate of completion time based on horizon + dependencies
   public estimateCompletionTime(goalId: string): number {
     const goal = this.goals.get(goalId);
     if (!goal) return 0;
 
-    // Base time for the goal itself (could be configured based on horizon)
+    // Base time for the goal itself (you can adjust these weights)
     const baseTime =
       {
         short: 1,
@@ -285,5 +302,68 @@ export class GoalManager {
       .reduce((sum, time) => sum + time, 0);
 
     return baseTime + Math.max(dependencyTime, subgoalTime);
+  }
+
+  /**
+   * Record an outcome score for a goal, along with optional commentary.
+   * You can define your own scale. E.g. 0 = fail, >0 = success, or 1-100, etc.
+   */
+  public recordGoalOutcome(
+    goalId: string,
+    outcomeScore: number,
+    comment?: string
+  ): void {
+    const goal = this.goals.get(goalId);
+    if (!goal) return;
+
+    // Mark as completed if not already
+    if (goal.status !== "completed" && goal.status !== "failed") {
+      this.updateGoalStatus(goalId, "completed");
+    }
+
+    // Attach or update the outcomeScore
+    goal.outcomeScore = outcomeScore;
+
+    // Track score history if you want multiple attempts or runs
+    goal.scoreHistory = goal.scoreHistory || [];
+    goal.scoreHistory.push({
+      timestamp: Date.now(),
+      score: outcomeScore,
+      comment,
+    });
+  }
+
+  public recordGoalFailure(
+    goalId: string,
+    reason: string,
+    outcomeScore: number = 0
+  ): void {
+    const goal = this.goals.get(goalId);
+    if (!goal) return;
+
+    goal.status = "failed";
+    goal.completed_at = Date.now();
+    goal.progress = 100; // or leave as-is
+
+    // Indicate or store the failing reason
+    goal.meta = { ...goal.meta, failReason: reason };
+
+    // Track the failure score
+    goal.outcomeScore = outcomeScore;
+    goal.scoreHistory = goal.scoreHistory || [];
+    goal.scoreHistory.push({
+      timestamp: Date.now(),
+      score: outcomeScore,
+      comment: `Failed: ${reason}`,
+    });
+  }
+
+  /**
+   * Return goals sorted by best outcomeScore so you can see "top performing" or "most successful" goals.
+   */
+  public getGoalsByScore(): Goal[] {
+    return Array.from(this.goals.values())
+      .filter((g) => g.outcomeScore !== undefined)
+      .sort((a, b) => (b.outcomeScore || 0) - (a.outcomeScore || 0));
   }
 }
