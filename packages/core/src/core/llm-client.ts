@@ -69,6 +69,32 @@ export class LLMClient {
     });
   }
 
+  // obfuscate the API key when logging
+  toJSON() {
+    let maskedApiKey = this.config.apiKey.slice(0, 7) + "*".repeat(3);
+
+    return {
+      ...this,
+      config: {
+        ...this.config,
+        apiKey: maskedApiKey,
+      },
+      anthropic: this.anthropic && {
+        ...this.anthropic,
+        apiKey: maskedApiKey,
+        _options: {
+          // @ts-ignore
+          ...this.anthropic._options,
+          apiKey: maskedApiKey,
+        },
+      },
+    };
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return this.toJSON();
+  }
+
   public async complete(prompt: string): Promise<LLMResponse> {
     let lastError: Error | null = null;
 
