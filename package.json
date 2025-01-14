@@ -2,7 +2,8 @@
   "name": "daydreams",
   "version": "0.0.1",
   "scripts": {
-    "dev": "bun run examples/example.ts"
+    "goal": "bun run examples/example-goal.ts",
+    "task": "bun run examples/example-basic.ts"
   },
   "dependencies": {
     "@types/node": "^22.10.5",
