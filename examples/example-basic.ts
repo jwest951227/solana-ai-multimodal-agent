@@ -1,14 +1,12 @@
 // This is a basic example of how to use the Daydreams package
 // It runs a simple agent that can execute tasks directly using the think method
 
-import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { env } from "../packages/core/src/core/env";
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
 import { ETERNUM_CONTEXT } from "./eternum-context";
 import * as readline from "readline";
 import chalk from "chalk";
-import { LogLevel } from "../packages/core/src/types";
 import { starknetTransactionAction } from "../packages/core/src/core/actions/starknet-transaction";
 import { graphqlAction } from "../packages/core/src/core/actions/graphql";
 import {
