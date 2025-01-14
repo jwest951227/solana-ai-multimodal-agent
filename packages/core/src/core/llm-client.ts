@@ -127,16 +127,17 @@ export class LLMClient {
         temperature: this.config.temperature,
         messages: [{ role: "user", content: prompt }],
       },
-      { signal }
+      { signal },
     );
 
     return {
       text: response.content[0].type === "text" ? response.content[0].text : "",
       model: this.currentModel,
       usage: {
-        prompt_tokens: 0, // Anthropic doesn't provide token counts
-        completion_tokens: 0,
-        total_tokens: 0,
+        prompt_tokens: response.usage.input_tokens,
+        completion_tokens: response.usage.output_tokens,
+        total_tokens: response.usage.input_tokens +
+          response.usage.output_tokens,
       },
       metadata: {
         stop_reason: response.stop_reason,
