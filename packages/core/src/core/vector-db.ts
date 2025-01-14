@@ -56,7 +56,7 @@ interface ClusterMetadata {
   topics: string[];
 }
 
-interface EpisodicMemory {
+export interface EpisodicMemory {
   id: string;
   timestamp: Date;
   action: string;
@@ -66,7 +66,7 @@ interface EpisodicMemory {
   importance?: number;
 }
 
-interface Documentation {
+export interface Documentation {
   id: string;
   title: string;
   content: string;

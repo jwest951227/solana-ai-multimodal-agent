@@ -61,7 +61,18 @@ export const starknetTransactionSchema: JSONSchemaType<StarknetTransactionPayloa
       entrypoint: { type: "string" },
       calldata: {
         type: "array",
-        items: { type: "string" },
+        items: {
+          oneOf: [
+            { type: "number" },
+            { type: "string" },
+            {
+              type: "array",
+              items: {
+                oneOf: [{ type: "number" }, { type: "string" }],
+              },
+            },
+          ],
+        },
       },
     },
     required: ["contractAddress", "entrypoint", "calldata"],

@@ -19,6 +19,8 @@ import { LogLevel } from "../types";
 import { injectTags } from "./utils";
 import { systemPromptAction } from "./actions/system-prompt";
 import Ajv from "ajv";
+import type { VectorDB, EpisodicMemory, Documentation } from "./vector-db";
+import { ChromaVectorDB } from "./vector-db";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";
@@ -34,6 +36,7 @@ export class ChainOfThought extends EventEmitter {
   private logger: Logger;
   private contextLogPath: string;
   goalManager: GoalManager;
+  memory: VectorDB;
 
   private actionRegistry = new Map<string, ActionHandler>();
   private actionExamples = new Map<
@@ -45,7 +48,11 @@ export class ChainOfThought extends EventEmitter {
 
   constructor(
     private llmClient: LLMClient,
-    initialContext?: ChainOfThoughtContext
+    initialContext?: ChainOfThoughtContext,
+    config: {
+      chromaUrl?: string;
+      logLevel?: LogLevel;
+    } = {}
   ) {
     super();
     this.stepManager = new StepManager();
@@ -73,6 +80,12 @@ export class ChainOfThought extends EventEmitter {
     this.goalManager = new GoalManager();
 
     this.registerDefaultActions();
+
+    // Initialize single memory system
+    this.memory = new ChromaVectorDB("agent_memory", {
+      chromaUrl: config.chromaUrl,
+      logLevel: config.logLevel,
+    });
   }
 
   private registerDefaultActions() {
@@ -713,7 +726,6 @@ export class ChainOfThought extends EventEmitter {
     this.logger.debug("executeAction", "Executing action", { action });
     this.emit("action:start", action);
 
-    // Add action step
     const actionStep = this.addStep(
       `Executing action: ${action.type}`,
       "action",
@@ -732,37 +744,42 @@ export class ChainOfThought extends EventEmitter {
         }
       }
 
-      // Lookup the handler in our registry
       const handler = this.actionRegistry.get(action.type);
-
       if (!handler) {
-        // No handler found
-        const errorMsg = `No handler registered for action type "${action.type}"`;
-        return errorMsg;
+        return `No handler registered for action type "${action.type}" try again`;
       }
 
-      // If found, run it
       const result = await handler(action, this);
 
-      // Update the action step with the result
+      // Format the result for better readability
+      const formattedResult =
+        typeof result === "object"
+          ? `${action.type} completed successfully:\n${JSON.stringify(
+              result,
+              null,
+              2
+            )}`
+          : result;
+
+      // Update the action step
       this.stepManager.updateStep(actionStep.id, {
-        content: `Action completed: ${result}`,
-        meta: { ...actionStep.meta, result },
+        content: `Action completed: ${formattedResult}`,
+        meta: { ...actionStep.meta, result: formattedResult },
       });
 
-      // Store the result in context
+      // Store in context
       this.mergeContext({
         actionHistory: {
           ...(this.context.actionHistory || {}),
           [Date.now()]: {
             action,
-            result,
+            result: formattedResult,
           },
         },
       });
 
-      this.emit("action:complete", { action, result });
-      return result;
+      this.emit("action:complete", { action, result: formattedResult });
+      return formattedResult;
     } catch (error) {
       // Update the action step with the error
       this.stepManager.updateStep(actionStep.id, {
@@ -911,7 +928,33 @@ ${example}
       })
       .join("\n\n");
 
-    // Replace any {{tag}} with the provided value or leave unchanged
+    // Format memory context
+    const pastExperiences = this.context.pastExperiences
+      ? this.context.pastExperiences
+          .map(
+            (exp) => `
+Previous Experience:
+- Action: ${exp.action}
+- Outcome: ${exp.outcome}
+- Importance: ${exp.importance || "N/A"}
+`
+          )
+          .join("\n")
+      : "No relevant past experiences";
+
+    const relevantKnowledge = this.context.relevantKnowledge
+      ? this.context.relevantKnowledge
+          .map(
+            (doc) => `
+Related Knowledge:
+- ${doc.title}
+- Category: ${doc.category}
+- Content: ${doc.content}
+- Tags: ${doc.tags.join(", ")}
+`
+          )
+          .join("\n")
+      : "No relevant knowledge found";
 
     const prompt = `
     <global_context>
@@ -1004,6 +1047,12 @@ Provide a JSON response with the following structure (this is an example only, u
 Do NOT include any additional keys outside of "plan" and "actions".
 Make sure the JSON is valid. No extra text outside of the JSON.
 
+<memory_context>
+${pastExperiences}
+
+${relevantKnowledge}
+</memory_context>
+
 </global_context>
 `;
 
@@ -1044,6 +1093,23 @@ Make sure the JSON is valid. No extra text outside of the JSON.
     this.emit("think:start", { query: userQuery });
 
     try {
+      // Consult single memory instance for both types of memories
+      const [similarExperiences, relevantDocs] = await Promise.all([
+        this.memory.findSimilarEpisodes(userQuery, 3),
+        this.memory.findSimilarDocuments(userQuery, 3),
+      ]);
+
+      // Enhance context with memory insights
+      this.mergeContext({
+        pastExperiences: similarExperiences,
+        relevantKnowledge: relevantDocs,
+      });
+
+      this.logger.debug("think", "Retrieved memory context", {
+        experienceCount: similarExperiences.length,
+        docCount: relevantDocs.length,
+      });
+
       this.logger.debug("think", "Beginning to think", {
         userQuery,
         maxIterations,
@@ -1089,6 +1155,19 @@ Make sure the JSON is valid. No extra text outside of the JSON.
 
           try {
             const result = await this.executeAction(currentAction);
+
+            // Store the experience
+            await this.storeExperience(currentAction.type, result);
+
+            // If the result seems important, store as knowledge
+            if (this.calculateImportance(result) > 0.7) {
+              await this.storeKnowledge(
+                `Learning from ${currentAction.type}`,
+                result,
+                "action_learning",
+                [currentAction.type, "automated_learning"]
+              );
+            }
 
             const updateContext = this.buildPrompt({
               result,
@@ -1203,6 +1282,213 @@ Do not include any text outside the JSON object. Do not include backticks, backs
       throw error;
     }
   }
+
+  private async formatActionOutcome(
+    action: string,
+    result: string | Record<string, any>
+  ): Promise<string> {
+    const resultStr =
+      typeof result === "string" ? result : JSON.stringify(result, null, 2);
+
+    const summary = await this.llmClient.analyze(
+      `
+      Summarize this action result in a clear, concise way:
+      
+      Action: ${action}
+      Result: ${resultStr}
+
+      Rules for summary:
+      1. Be concise but informative (1-2 lines max)
+      2. Al values from the result to make the summary more informative
+      3. Focus on the key outcomes or findings
+      4. Use neutral, factual language
+      5. Don't include technical details unless crucial
+      6. Make it human-readable
+      
+      Return only the summary text, no additional formatting or explanation.
+      `,
+      {
+        system:
+          "You are a result summarizer. Create clear, concise summaries of action results.",
+      }
+    );
+
+    return summary.toString().trim();
+  }
+
+  private async storeExperience(
+    action: string,
+    result: string | Record<string, any>,
+    importance?: number
+  ): Promise<void> {
+    try {
+      // Get semantic summary of the outcome
+      const formattedOutcome = await this.formatActionOutcome(action, result);
+
+      // Calculate importance if not provided
+      const calculatedImportance =
+        importance ?? this.calculateImportance(formattedOutcome);
+
+      // Store the experience
+      await this.memory.storeEpisode({
+        timestamp: new Date(),
+        action: action + " RESULT: " + result,
+        outcome: formattedOutcome,
+        context: this.context,
+        importance: calculatedImportance,
+        emotions: this.determineEmotions(
+          action + " RESULT: " + result,
+          formattedOutcome,
+          calculatedImportance
+        ),
+      });
+
+      this.emit("memory:experience_stored", {
+        experience: {
+          id: crypto.randomUUID(),
+          action: action + " RESULT: " + result,
+          outcome: formattedOutcome,
+          timestamp: new Date(),
+          context: this.context,
+          importance: calculatedImportance,
+          emotions: this.determineEmotions(
+            action + " RESULT: " + result,
+            formattedOutcome,
+            calculatedImportance
+          ),
+        },
+      });
+    } catch (error) {
+      this.logger.error("storeExperience", "Failed to store experience", {
+        error,
+      });
+    }
+  }
+
+  private determineEmotions(
+    action: string,
+    result: string | Record<string, any>,
+    importance: number
+  ): string[] {
+    const emotions: string[] = [];
+    const resultStr =
+      typeof result === "string" ? result : JSON.stringify(result);
+
+    // Success/failure emotions
+    if (
+      resultStr.toLowerCase().includes("error") ||
+      resultStr.toLowerCase().includes("failed")
+    ) {
+      emotions.push("frustrated");
+      if (importance > 0.7) emotions.push("concerned");
+    } else {
+      emotions.push("satisfied");
+      if (importance > 0.7) emotions.push("excited");
+    }
+
+    // Learning emotions
+    if (
+      resultStr.toLowerCase().includes("learned") ||
+      resultStr.toLowerCase().includes("discovered")
+    ) {
+      emotions.push("curious");
+    }
+
+    // Action-specific emotions
+    if (action.includes("QUERY") || action.includes("FETCH")) {
+      emotions.push("analytical");
+    }
+    if (action.includes("TRANSACTION") || action.includes("EXECUTE")) {
+      emotions.push("focused");
+    }
+
+    return emotions;
+  }
+
+  private calculateImportance(result: string): number {
+    const keyTerms = {
+      high: [
+        "error",
+        "critical",
+        "important",
+        "success",
+        "discovered",
+        "learned",
+        "achieved",
+        "completed",
+        "milestone",
+      ],
+      medium: [
+        "updated",
+        "modified",
+        "changed",
+        "progress",
+        "partial",
+        "attempted",
+      ],
+      low: ["checked", "verified", "queried", "fetched", "routine", "standard"],
+    };
+
+    const resultLower = result.toLowerCase();
+
+    // Calculate term-based score
+    let termScore = 0;
+    keyTerms.high.forEach((term) => {
+      if (resultLower.includes(term)) termScore += 0.3;
+    });
+    keyTerms.medium.forEach((term) => {
+      if (resultLower.includes(term)) termScore += 0.2;
+    });
+    keyTerms.low.forEach((term) => {
+      if (resultLower.includes(term)) termScore += 0.1;
+    });
+
+    // Cap term score at 0.7
+    termScore = Math.min(termScore, 0.7);
+
+    // Calculate complexity score based on result length and structure
+    const complexityScore = Math.min(
+      result.length / 1000 +
+        result.split("\n").length / 20 +
+        (JSON.stringify(result).match(/{/g)?.length || 0) / 10,
+      0.3
+    );
+
+    // Combine scores
+    return Math.min(termScore + complexityScore, 1);
+  }
+
+  private async storeKnowledge(
+    title: string,
+    content: string,
+    category: string,
+    tags: string[]
+  ): Promise<void> {
+    try {
+      await this.memory.storeDocument({
+        title,
+        content,
+        category,
+        tags,
+        lastUpdated: new Date(),
+      });
+
+      this.emit("memory:knowledge_stored", {
+        document: {
+          id: crypto.randomUUID(),
+          title,
+          content,
+          category,
+          tags,
+          lastUpdated: new Date(),
+        },
+      });
+    } catch (error) {
+      this.logger.error("storeKnowledge", "Failed to store knowledge", {
+        error,
+      });
+    }
+  }
 }
 
 // Add type definitions for the events
@@ -1221,6 +1507,12 @@ export interface ChainOfThoughtEvents {
   "goal:failed": (goal: { id: string; error: Error | unknown }) => void;
   "goal:started": (goal: { id: string; description: string }) => void;
   "goal:blocked": (goal: { id: string; reason: string }) => void;
+  "memory:experience_stored": (data: { experience: EpisodicMemory }) => void;
+  "memory:knowledge_stored": (data: { document: Documentation }) => void;
+  "memory:experience_retrieved": (data: {
+    experiences: EpisodicMemory[];
+  }) => void;
+  "memory:knowledge_retrieved": (data: { documents: Documentation[] }) => void;
 }
 
 // Add type safety to event emitter

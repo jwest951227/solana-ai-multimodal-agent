@@ -1,5 +1,7 @@
 import type { JSONSchemaType } from "ajv";
 import type { ChainOfThought } from "../core/chain-of-thought";
+import type { Documentation } from "../core/vector-db";
+import type { EpisodicMemory } from "../core/vector-db";
 
 // Base event type
 export interface BaseEvent {
@@ -129,6 +131,8 @@ export interface ChainOfThoughtContext {
       result: string;
     }
   >;
+  pastExperiences?: EpisodicMemory[];
+  relevantKnowledge?: Documentation[];
 }
 
 /**

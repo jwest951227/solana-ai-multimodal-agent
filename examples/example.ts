@@ -174,6 +174,58 @@ async function main() {
     });
   });
 
+  // Add memory-related event handlers
+  dreams.on("memory:experience_stored", ({ experience }) => {
+    console.log(chalk.blue("\n💾 New experience stored:"), {
+      action: experience.action,
+      outcome: experience.outcome,
+      importance: experience.importance,
+      timestamp: experience.timestamp,
+    });
+
+    // If there are emotions, show them
+    if (experience.emotions?.length) {
+      console.log(
+        chalk.blue("😊 Emotional context:"),
+        experience.emotions.join(", ")
+      );
+    }
+  });
+
+  dreams.on("memory:knowledge_stored", ({ document }) => {
+    console.log(chalk.magenta("\n📚 New knowledge documented:"), {
+      title: document.title,
+      category: document.category,
+      tags: document.tags,
+      lastUpdated: document.lastUpdated,
+    });
+    console.log(chalk.magenta("📝 Content:"), document.content);
+  });
+
+  dreams.on("memory:experience_retrieved", ({ experiences }) => {
+    console.log(chalk.yellow("\n🔍 Relevant past experiences found:"));
+    experiences.forEach((exp, index) => {
+      console.log(chalk.yellow(`\n${index + 1}. Previous Experience:`));
+      console.log(`   Action: ${exp.action}`);
+      console.log(`   Outcome: ${exp.outcome}`);
+      console.log(`   Importance: ${exp.importance || "N/A"}`);
+      if (exp.emotions?.length) {
+        console.log(`   Emotions: ${exp.emotions.join(", ")}`);
+      }
+    });
+  });
+
+  dreams.on("memory:knowledge_retrieved", ({ documents }) => {
+    console.log(chalk.green("\n📖 Relevant knowledge retrieved:"));
+    documents.forEach((doc, index) => {
+      console.log(chalk.green(`\n${index + 1}. Knowledge Entry:`));
+      console.log(`   Title: ${doc.title}`);
+      console.log(`   Category: ${doc.category}`);
+      console.log(`   Tags: ${doc.tags.join(", ")}`);
+      console.log(`   Content: ${doc.content}`);
+    });
+  });
+
   while (true) {
     console.log(chalk.cyan("\n🤖 Enter your goal (or 'exit' to quit):"));
     const userInput = await getCliInput("> ");
@@ -268,7 +320,33 @@ async function main() {
         stats.total++;
       }
 
-      // Final summary
+      // Add learning summary after goal execution
+      console.log(chalk.cyan("\n📊 Learning Summary:"));
+
+      // Get recent experiences
+      const recentExperiences = await dreams.memory.getRecentEpisodes(5);
+      console.log(chalk.blue("\n🔄 Recent Experiences:"));
+      recentExperiences.forEach((exp, index) => {
+        console.log(chalk.blue(`\n${index + 1}. Experience:`));
+        console.log(`   Action: ${exp.action}`);
+        console.log(`   Outcome: ${exp.outcome}`);
+        console.log(`   Importance: ${exp.importance || "N/A"}`);
+      });
+
+      // Get relevant documents for the current context
+      const relevantDocs = await dreams.memory.findSimilarDocuments(
+        userInput,
+        3
+      );
+      console.log(chalk.magenta("\n📚 Accumulated Knowledge:"));
+      relevantDocs.forEach((doc, index) => {
+        console.log(chalk.magenta(`\n${index + 1}. Knowledge Entry:`));
+        console.log(`   Title: ${doc.title}`);
+        console.log(`   Category: ${doc.category}`);
+        console.log(`   Tags: ${doc.tags.join(", ")}`);
+      });
+
+      // Final summary with stats
       console.log(chalk.cyan("\n📊 Final Execution Summary:"));
       console.log(chalk.green(`✅ Completed Goals: ${stats.completed}`));
       console.log(chalk.red(`❌ Failed Goals: ${stats.failed}`));
@@ -277,6 +355,11 @@ async function main() {
           `📈 Success Rate: ${Math.round(
             (stats.completed / stats.total) * 100
           )}%`
+        )
+      );
+      console.log(
+        chalk.yellow(
+          `🧠 Learning Progress: ${recentExperiences.length} new experiences, ${relevantDocs.length} relevant knowledge entries`
         )
       );
     } catch (error) {
