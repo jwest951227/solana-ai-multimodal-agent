@@ -664,3 +664,5 @@ Now, please wait for a user query about the Eternum game, and respond according 
     </CREATE_BUILDING>
   </FUNCTIONS>
 </PROVIDER_GUIDE>`;
+
+console.log(JSON.stringify(ETERNUM_CONTEXT));

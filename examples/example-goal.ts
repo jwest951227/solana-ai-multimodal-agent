@@ -5,7 +5,6 @@
 // 1. Define a new context for the agent. Similar to ETERNUM_CONTEXT
 // 2. Inject the next context into the agent
 
-import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { env } from "../packages/core/src/core/env";
 
 import { LLMClient } from "../packages/core/src/core/llm-client";
@@ -14,7 +13,6 @@ import { ETERNUM_CONTEXT } from "./eternum-context";
 import * as readline from "readline";
 import { type GoalStatus } from "../packages/core/src/core/goal-manager";
 import chalk from "chalk";
-import { LogLevel } from "../packages/core/src/types";
 import { starknetTransactionAction } from "../packages/core/src/core/actions/starknet-transaction";
 import { graphqlAction } from "../packages/core/src/core/actions/graphql";
 import {
@@ -49,21 +47,31 @@ function printGoalStatus(status: GoalStatus): string {
   return colors[status] || status;
 }
 
-async function main() {
-  // Initialize VectorDB first
-  const vectorDb = new ChromaVectorDB("memories", {
-    chromaUrl: "http://localhost:8000",
-    logLevel: LogLevel.INFO,
-  });
+// This is a simple function to fetch the context from a remote source
+async function fetchContext() {
+  try {
+    const response = await fetch(
+      "https://raw.githubusercontent.com/daydreamsai/sleeves/main/sleeves/eternum.json"
+    );
+    const data = await response.json();
+    return data.context;
+  } catch (error) {
+    console.error(chalk.red("Failed to fetch context:"), error);
+    throw error;
+  }
+}
 
+async function main() {
   // Initialize LLM client
   const llmClient = new LLMClient({
     provider: "anthropic",
     apiKey: env.ANTHROPIC_API_KEY,
   });
 
+  const context = await fetchContext();
+
   const dreams = new ChainOfThought(llmClient, {
-    worldState: ETERNUM_CONTEXT,
+    worldState: context,
     queriesAvailable: "",
     availableActions: "",
   });
