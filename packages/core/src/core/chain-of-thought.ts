@@ -58,8 +58,6 @@ export class ChainOfThought extends EventEmitter {
     this.stepManager = new StepManager();
     this.context = initialContext ?? {
       worldState: "",
-      queriesAvailable: "",
-      availableActions: "",
     };
     this.snapshots = [];
     this.logger = new Logger({
@@ -987,10 +985,6 @@ ${lastSteps}
 
 <CONTEXT_SUMMARY>
 ${this.context.worldState}
-
-${this.context.queriesAvailable}
-
-${this.context.availableActions}
 
 {{additional_context}}
 </CONTEXT_SUMMARY>

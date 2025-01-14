@@ -2,13 +2,67 @@
 
 Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to play any onchain game by simply injecting context. Base, Solana, Ethereum, Starknet, etc.
 
-You can drop daydreams into Eliza or any typescript agent framework via their plugin system.
+## Quick Start
 
-_How it works:_
+```bash
+pnpm i
+sh ./docker.sh
 
-- Agent or human designs a Context (text file) about the game or app.
-- The Context is injected into the agent or fetched from the agents memory.
-- The agent then plays the game or app dynamically without any additional configuration.
+# Run the goal-based example
+bun goal
+```
+
+## How It Works
+
+1. **Context**: Define your game context as a simple text/JSON file that describes the game rules, state, and available actions.
+
+   This should be a JSON object that contains the game state and rules. Along with queries and how to execute actions.
+
+```typescript
+{
+  worldState: "Current game state and rules...",
+}
+```
+
+2. **Actions**: Register the actions your agent can take. Each action has a description, example, and validation schema:
+
+```typescript
+dreams.registerAction(
+  "EXECUTE_TRANSACTION",
+  starknetTransactionAction,
+  {
+    description: "Execute a transaction on the Starknet blockchain",
+    example: JSON.stringify({
+      contractAddress: "0x1234...",
+      entrypoint: "execute",
+      calldata: [1, 2, 3],
+    }),
+  },
+  validationSchema
+);
+```
+
+3. **Goals**: The agent uses Chain of Thought processing to:
+
+- Plan strategies for achieving goals
+- Break down complex goals into subgoals
+- Execute actions to accomplish goals
+- Learn from experiences and store knowledge
+
+4. **Monitor Progress**: Subscribe to events to track the agent's thinking and actions:
+
+```typescript
+dreams.on("think:start", ({ query }) => {
+  console.log("🧠 Starting to think about:", query);
+});
+
+dreams.on("action:complete", ({ action, result }) => {
+  console.log("✅ Action complete:", {
+    type: action.type,
+    result,
+  });
+});
+```
 
 _Design directions:_
 

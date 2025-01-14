@@ -39,8 +39,6 @@ async function main() {
   // Initialize ChainOfThought
   const dreams = new ChainOfThought(llmClient, {
     worldState: ETERNUM_CONTEXT,
-    queriesAvailable: "",
-    availableActions: "",
   });
 
   // Register available actions

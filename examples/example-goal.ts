@@ -72,8 +72,6 @@ async function main() {
 
   const dreams = new ChainOfThought(llmClient, {
     worldState: context,
-    queriesAvailable: "",
-    availableActions: "",
   });
 
   // Register actions
