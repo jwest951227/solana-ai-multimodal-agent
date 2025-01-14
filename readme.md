@@ -31,10 +31,12 @@ Roadmap (not in order):
 
 # Getting Started
 
-You must have bun installed. Then
+You must have bun & Docker installed. Make sure you have the Docker desktop app installed and running.
 
 ```bash
 pnpm i
+
+sh ./docker.sh
 
 # we use bun as it is nice for development
 bun dev
