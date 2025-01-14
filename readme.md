@@ -4,11 +4,16 @@ Daydreams is a generative agent library for playing anything onchain. It is chai
 
 ## Quick Start
 
+You must have bun & Docker installed. Make sure you have the Docker desktop app installed and running.
+
 ```bash
 pnpm i
+
+cp .env.example .env
+
 sh ./docker.sh
 
-# Run the goal-based example
+# Run the goal-based example. This will play mock Eternum with a goal manager and execute tasks.
 bun goal
 ```
 
@@ -82,22 +87,6 @@ Roadmap (not in order):
 - [ ] Swarm Rooms
 - [ ] Integration with External Agents
 - [ ] Create 'sleeves' abstract. Allowing dynamic context generation for any game or app.
-
-# Getting Started
-
-You must have bun & Docker installed. Make sure you have the Docker desktop app installed and running.
-
-```bash
-pnpm i
-
-sh ./docker.sh
-
-# This runs the long term goal example - which includes a goal manager and executes tasks
-bun goal
-
-# This runs the task example - which is a simple agent that can execute tasks directly
-bun task
-```
 
 ## 1. Overview
 
