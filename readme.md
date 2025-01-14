@@ -38,8 +38,11 @@ pnpm i
 
 sh ./docker.sh
 
-# we use bun as it is nice for development
-bun dev
+# This runs the long term goal example - which includes a goal manager and executes tasks
+bun goal
+
+# This runs the task example - which is a simple agent that can execute tasks directly
+bun task
 ```
 
 ## 1. Overview
