@@ -8,7 +8,12 @@ import type {
 import { queryValidator } from "./validation";
 import { Logger } from "./logger";
 import { EventEmitter } from "events";
-import { GoalManager, type HorizonType, type GoalStatus } from "./goal-manager";
+import {
+  GoalManager,
+  type HorizonType,
+  type GoalStatus,
+  type Goal,
+} from "./goal-manager";
 import { StepManager, type Step, type StepType } from "./step-manager";
 import { LogLevel } from "../types";
 import { injectTags } from "./utils";
@@ -164,7 +169,7 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  private getPrioritizedGoals(): any[] {
+  private getPrioritizedGoals(): Goal[] {
     const readyGoals = this.goalManager.getReadyGoals();
 
     // Sort first by horizon priority (short > medium > long)
@@ -378,7 +383,7 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  private async handleGoalCompletion(goal: any): Promise<void> {
+  private async handleGoalCompletion(goal: Goal): Promise<void> {
     this.goalManager.updateGoalStatus(goal.id, "completed");
 
     // Update context based on goal completion
@@ -452,7 +457,7 @@ export class ChainOfThought extends EventEmitter {
   }
 
   private async handleGoalFailure(
-    goal: any,
+    goal: Goal,
     error: Error | unknown
   ): Promise<void> {
     this.goalManager.updateGoalStatus(goal.id, "failed");
@@ -468,7 +473,7 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
-  private async validateGoalSuccess(goal: any): Promise<boolean> {
+  private async validateGoalSuccess(goal: Goal): Promise<boolean> {
     const prompt = `
       <goal_validation>
       Goal: ${goal.description}
@@ -483,7 +488,11 @@ export class ChainOfThought extends EventEmitter {
       ${JSON.stringify(this.stepManager.getSteps().slice(-10), null, 2)}
       
       Based on the success criteria and current context, has this goal been achieved?
-      Return only a JSON object with: { "success": boolean, "reason": string }
+
+      Outcome Score:
+      - 0-100 = 0-100% success
+
+      Return only a JSON object with: { "success": boolean, "reason": string, "outcomeScore": number }
       </goal_validation>
     `;
 
@@ -506,6 +515,13 @@ export class ChainOfThought extends EventEmitter {
           "goal-validation",
         ]);
       }
+
+      // Record the outcome score
+      this.goalManager.recordGoalOutcome(
+        goal.id,
+        result.outcomeScore,
+        result.reason
+      );
 
       return result.success;
     } catch (error) {

@@ -25,6 +25,19 @@ export interface VectorDB {
   ): Promise<SearchResult[]>;
   storeSystemMetadata(key: string, value: Record<string, any>): Promise<void>;
   getSystemMetadata(key: string): Promise<Record<string, any> | null>;
+  storeEpisode(memory: Omit<EpisodicMemory, "id">): Promise<string>;
+  findSimilarEpisodes(
+    action: string,
+    limit?: number
+  ): Promise<EpisodicMemory[]>;
+  getRecentEpisodes(limit?: number): Promise<EpisodicMemory[]>;
+  storeDocument(doc: Omit<Documentation, "id">): Promise<string>;
+  findSimilarDocuments(query: string, limit?: number): Promise<Documentation[]>;
+  searchDocumentsByTag(
+    tags: string[],
+    limit?: number
+  ): Promise<Documentation[]>;
+  updateDocument(id: string, updates: Partial<Documentation>): Promise<void>;
 }
 
 interface Cluster {
@@ -43,9 +56,25 @@ interface ClusterMetadata {
   topics: string[];
 }
 
-interface MemoryWithTimestamp {
-  content: string;
+interface EpisodicMemory {
+  id: string;
   timestamp: Date;
+  action: string;
+  outcome: string;
+  context?: Record<string, any>;
+  emotions?: string[];
+  importance?: number;
+}
+
+interface Documentation {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  lastUpdated: Date;
+  source?: string;
+  relatedIds?: string[];
 }
 
 // Helper function to check if value is valid for Date constructor
@@ -64,6 +93,8 @@ export class ChromaVectorDB implements VectorDB {
   private collectionName: string;
   static readonly CLUSTER_COLLECTION = "clusters";
   static readonly SYSTEM_COLLECTION = "system_metadata";
+  static readonly EPISODIC_COLLECTION = "episodic_memory";
+  static readonly DOCUMENTATION_COLLECTION = "documentation";
 
   constructor(
     collectionName: string = "memories",
@@ -512,5 +543,194 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     return null;
+  }
+
+  private async getEpisodicCollection() {
+    return await this.client.getOrCreateCollection({
+      name: ChromaVectorDB.EPISODIC_COLLECTION,
+      embeddingFunction: this.embedder,
+      metadata: {
+        description: "Storage for agent's episodic memories and experiences",
+      },
+    });
+  }
+
+  private async getDocumentationCollection() {
+    return await this.client.getOrCreateCollection({
+      name: ChromaVectorDB.DOCUMENTATION_COLLECTION,
+      embeddingFunction: this.embedder,
+      metadata: {
+        description: "Storage for documentation and learned information",
+      },
+    });
+  }
+
+  public async storeEpisode(
+    memory: Omit<EpisodicMemory, "id">
+  ): Promise<string> {
+    const collection = await this.getEpisodicCollection();
+    const id = crypto.randomUUID();
+    const content = `Action: ${memory.action}\nOutcome: ${memory.outcome}`;
+
+    await collection.add({
+      ids: [id],
+      documents: [content],
+      metadatas: [
+        {
+          ...memory,
+          context: memory.context ? JSON.stringify(memory.context) : "",
+          emotions: memory.emotions?.join(",") || "",
+          timestamp: memory.timestamp.toISOString(),
+          type: "episode",
+        },
+      ],
+    });
+
+    return id;
+  }
+
+  public async findSimilarEpisodes(
+    action: string,
+    limit: number = 5
+  ): Promise<EpisodicMemory[]> {
+    const collection = await this.getEpisodicCollection();
+    const results = await collection.query({
+      queryTexts: [action],
+      nResults: limit,
+      where: { type: "episode" },
+    });
+
+    return results.ids[0].map((id: string, index: number) => ({
+      id,
+      action: String(results.metadatas[0][index]?.action),
+      outcome: String(results.metadatas[0][index]?.outcome),
+      context: results.metadatas[0][index]?.context
+        ? JSON.parse(results.metadatas[0][index].context as string)
+        : undefined,
+      emotions:
+        (results.metadatas[0][index]?.emotions as string)?.split(",") || [],
+      timestamp: new Date(String(results.metadatas[0][index]?.timestamp)),
+    }));
+  }
+
+  public async getRecentEpisodes(
+    limit: number = 10
+  ): Promise<EpisodicMemory[]> {
+    const collection = await this.getEpisodicCollection();
+    const results = await collection.peek({ limit });
+
+    return results.ids.map((id: string, index: number) => ({
+      id,
+      action: String(results.metadatas[index]?.action),
+      outcome: String(results.metadatas[index]?.outcome),
+      context: results.metadatas[index]?.context
+        ? JSON.parse(results.metadatas[index].context as string)
+        : undefined,
+      emotions:
+        (results.metadatas[index]?.emotions as string)?.split(",") || [],
+      timestamp: new Date(String(results.metadatas[index]?.timestamp)),
+    }));
+  }
+
+  public async storeDocument(doc: Omit<Documentation, "id">): Promise<string> {
+    const collection = await this.getDocumentationCollection();
+    const id = crypto.randomUUID();
+
+    await collection.add({
+      ids: [id],
+      documents: [doc.content],
+      metadatas: [
+        {
+          title: doc.title,
+          category: doc.category,
+          tags: doc.tags.join(","),
+          lastUpdated: doc.lastUpdated.toISOString(),
+          source: doc.source || "",
+          relatedIds: doc.relatedIds?.join(",") || "",
+          type: "documentation",
+        },
+      ],
+    });
+
+    return id;
+  }
+
+  public async findSimilarDocuments(
+    query: string,
+    limit: number = 5
+  ): Promise<Documentation[]> {
+    const collection = await this.getDocumentationCollection();
+    const results = await collection.query({
+      queryTexts: [query],
+      nResults: limit,
+      where: { type: "documentation" },
+    });
+
+    return results.ids[0].map((id: string, index: number) => ({
+      id,
+      title: String(results.metadatas[0][index]?.title),
+      category: String(results.metadatas[0][index]?.category),
+      content: results.documents[0][index] || "",
+      tags: (results.metadatas[0][index]?.tags as string)?.split(",") || [],
+      lastUpdated: new Date(String(results.metadatas[0][index]?.lastUpdated)),
+      relatedIds:
+        (results.metadatas[0][index]?.relatedIds as string)?.split(",") || [],
+    }));
+  }
+
+  public async searchDocumentsByTag(
+    tags: string[],
+    limit: number = 5
+  ): Promise<Documentation[]> {
+    const collection = await this.getDocumentationCollection();
+    const results = await collection.get({
+      where: {
+        type: "documentation",
+        tags: { $eq: tags.join(",") },
+      },
+      limit,
+    });
+
+    return results.ids.map((id: string, index: number) => ({
+      id,
+      content: results.documents[index] || "",
+      title: String(results.metadatas[index]?.title),
+      category: String(results.metadatas[index]?.category),
+      tags: (results.metadatas[index]?.tags as string)?.split(",") || [],
+      lastUpdated: new Date(String(results.metadatas[index]?.lastUpdated)),
+      relatedIds:
+        (results.metadatas[index]?.relatedIds as string)?.split(",") || [],
+    }));
+  }
+
+  public async updateDocument(
+    id: string,
+    updates: Partial<Documentation>
+  ): Promise<void> {
+    const collection = await this.getDocumentationCollection();
+    const existing = await collection.get({ ids: [id] });
+
+    if (!existing.ids.length) {
+      throw new Error(`Document with id ${id} not found`);
+    }
+
+    const currentMetadata = existing.metadatas[0];
+    const updatedMetadata = {
+      ...currentMetadata,
+      title: updates.title || currentMetadata?.title || "",
+      category: updates.category || currentMetadata?.category || "",
+      source: updates.source || currentMetadata?.source || "",
+      lastUpdated: new Date().toISOString(),
+      tags: updates.tags?.join(",") ?? currentMetadata?.tags ?? "",
+      relatedIds:
+        updates.relatedIds?.join(",") ?? currentMetadata?.relatedIds ?? "",
+      type: currentMetadata?.type || "documentation",
+    };
+
+    await collection.update({
+      ids: [id],
+      documents: updates.content ? [updates.content] : undefined,
+      metadatas: [updatedMetadata],
+    });
   }
 }

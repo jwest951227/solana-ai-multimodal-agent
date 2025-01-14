@@ -8,7 +8,7 @@ export type GoalStatus =
   | "blocked";
 
 // Add new interfaces for goal management
-interface Goal {
+export interface Goal {
   id: string;
   horizon: HorizonType;
   description: string;
