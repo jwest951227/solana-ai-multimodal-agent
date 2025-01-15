@@ -202,7 +202,7 @@ export class ChainOfThought extends EventEmitter {
   }
 
   private async canExecuteGoal(
-    goal: any
+    goal: Goal
   ): Promise<{ possible: boolean; reason: string }> {
     const prompt = `
       <goal_execution_check>
@@ -211,8 +211,8 @@ export class ChainOfThought extends EventEmitter {
       Current Context:
       ${JSON.stringify(this.context, null, 2)}
       
-      Required Resources/Prerequisites:
-      ${JSON.stringify(goal.requirements || {}, null, 2)}
+      Required dependencies:
+      ${JSON.stringify(goal.dependencies || {}, null, 2)}
       
       Analyze if this goal can be executed right now. Consider:
       1. Are all required resources available?

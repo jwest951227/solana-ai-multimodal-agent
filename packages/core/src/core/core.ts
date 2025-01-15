@@ -4,8 +4,6 @@ import {
   type LoggerConfig,
   type TweetReceived,
 } from "../types";
-import type { ActionRegistry } from "./actions";
-import type { IntentExtractor } from "./intent";
 import { Logger } from "./logger";
 import { EventProcessor, type ProcessedIntent } from "./processor";
 import { Room } from "./room";
@@ -47,8 +45,6 @@ export class Core implements EventEmitter<ClientEvent> {
   constructor(
     processor: EventProcessor,
     roomManager: RoomManager,
-    actionRegistry: ActionRegistry,
-    intentExtractor: IntentExtractor,
     vectorDb: VectorDB,
     config?: CoreConfig
   ) {
@@ -105,6 +101,7 @@ export class Core implements EventEmitter<ClientEvent> {
       source: event.source,
       ...event.metadata,
     });
+
     this.logger.debug("Core.emit", "Added to room memory", { roomId: room.id });
 
     // Process with room context
