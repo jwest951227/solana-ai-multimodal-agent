@@ -220,11 +220,8 @@ export class LLMClient {
 
     const response = await this.anthropic?.messages.create({
       model: this.config.model,
+      system: system || "",
       messages: [
-        {
-          role: "assistant",
-          content: system || "",
-        },
         {
           role: "user",
           content: formatResponse
