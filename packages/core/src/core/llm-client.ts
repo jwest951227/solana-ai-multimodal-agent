@@ -69,6 +69,32 @@ export class LLMClient {
     });
   }
 
+  // obfuscate the API key when logging
+  toJSON() {
+    let maskedApiKey = this.config.apiKey.slice(0, 7) + "*".repeat(3);
+
+    return {
+      ...this,
+      config: {
+        ...this.config,
+        apiKey: maskedApiKey,
+      },
+      anthropic: this.anthropic && {
+        ...this.anthropic,
+        apiKey: maskedApiKey,
+        _options: {
+          // @ts-ignore
+          ...this.anthropic._options,
+          apiKey: maskedApiKey,
+        },
+      },
+    };
+  }
+
+  [Symbol.for("nodejs.util.inspect.custom")]() {
+    return this.toJSON();
+  }
+
   public async complete(prompt: string): Promise<LLMResponse> {
     let lastError: Error | null = null;
 
@@ -127,16 +153,17 @@ export class LLMClient {
         temperature: this.config.temperature,
         messages: [{ role: "user", content: prompt }],
       },
-      { signal }
+      { signal },
     );
 
     return {
       text: response.content[0].type === "text" ? response.content[0].text : "",
       model: this.currentModel,
       usage: {
-        prompt_tokens: 0, // Anthropic doesn't provide token counts
-        completion_tokens: 0,
-        total_tokens: 0,
+        prompt_tokens: response.usage.input_tokens,
+        completion_tokens: response.usage.output_tokens,
+        total_tokens: response.usage.input_tokens +
+          response.usage.output_tokens,
       },
       metadata: {
         stop_reason: response.stop_reason,
@@ -188,8 +215,8 @@ export class LLMClient {
   ): Promise<string | StructuredAnalysis> {
     const {
       system,
-      temperature = 0.3,
-      maxTokens = 1500,
+      temperature = this.config.temperature,
+      maxTokens = this.config.maxTokens,
       formatResponse = false,
     } = options;
 
