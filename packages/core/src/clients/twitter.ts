@@ -216,19 +216,6 @@ export class TwitterClient {
       },
     };
   }
-
-  public async close() {
-    if (this.scraper) {
-      try {
-        // await this.scraper.close();
-        this.isInitialized = false;
-      } catch (error) {
-        this.logger.error("TwitterClient.close", "Error closing scraper", {
-          error,
-        });
-      }
-    }
-  }
 }
 
 // Example usage:

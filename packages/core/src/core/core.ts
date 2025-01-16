@@ -9,7 +9,7 @@ import type { Processor } from "./processor";
 // Input interface for scheduled or one-time tasks
 export interface Input {
   name: string;
-  function: (...args: any[]) => Promise<any>;
+  handler: (...args: any[]) => Promise<any>;
   response: any; // Type of response expected
   interval?: number; // Time in milliseconds between runs, if not provided runs once
 }
@@ -17,7 +17,7 @@ export interface Input {
 // Output interface for actions that push data somewhere
 export interface Output {
   name: string;
-  function: (data: any) => Promise<any>;
+  handler: (data: any) => Promise<any>;
   response: any; // Type of response expected
   schema: JSONSchemaType<any>; // Schema to validate input data
 }
@@ -102,7 +102,7 @@ export class Core {
         try {
           this.logger.debug("Core.processInputs", "Processing input", { name });
 
-          const result = await input.function();
+          const result = await input.handler();
 
           // Update last run time
           this.inputs.set(name, {
@@ -154,7 +154,7 @@ export class Core {
     try {
       this.logger.debug("Core.executeOutput", "Executing output", { name });
 
-      const result = await output.function(data);
+      const result = await output.handler(data);
 
       // Store in room memory
       const room = await this.ensureRoom(name);
