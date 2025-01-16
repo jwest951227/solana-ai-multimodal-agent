@@ -58,6 +58,11 @@ export class Core {
 
     // Start input processing loop
     this.processInputs();
+
+    // Register available outputs with processor
+    this.outputs.forEach((output) => {
+      this.processor.registerAvailableOutput(output);
+    });
   }
 
   /**
@@ -116,15 +121,12 @@ export class Core {
 
             // Register available outputs with processor
             // we could move this to value within core rather than doing here....
-            this.outputs.forEach((output) => {
-              this.processor.registerAvailableOutput(output);
-            });
 
             const processed = await this.processor.process(result, room);
 
             await this.roomManager.addMemory(
               room.id,
-              JSON.stringify(processed.content), // TODO: Fix this
+              JSON.stringify(processed.content), // TODO: Fix this everything being dumped into memory
               {
                 source: name,
                 type: "input",
