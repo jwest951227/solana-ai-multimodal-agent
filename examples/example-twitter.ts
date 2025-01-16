@@ -1,8 +1,5 @@
 import { Core } from "../packages/core/src/core/core";
-import {
-  tweetSchema,
-  TwitterClient,
-} from "../packages/core/src/clients/twitter";
+import { tweetSchema, TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { Processor } from "../packages/core/src/core/processor";
