@@ -5,11 +5,20 @@ import type { VectorDB } from "./vector-db";
 import type { Character } from "./character";
 import type { SearchResult } from "../types";
 import { LogLevel } from "../types";
+import type { Output } from "./core";
 
 export interface ProcessedResult {
   content: any;
   metadata: Record<string, any>;
   enrichedContext: EnrichedContext;
+  suggestedOutputs: SuggestedOutput[];
+}
+
+export interface SuggestedOutput {
+  name: string;
+  data: any;
+  confidence: number;
+  reasoning: string;
 }
 
 export interface EnrichedContext {
@@ -22,6 +31,7 @@ export interface EnrichedContext {
   intent?: string;
   similarMessages?: any[];
   metadata?: Record<string, any>;
+  availableOutputs?: string[]; // Names of available outputs
 }
 
 interface EnrichedContent {
@@ -51,6 +61,7 @@ function hasRoomSupport(vectorDb: VectorDB): vectorDb is VectorDBWithRooms {
 
 export class Processor {
   private logger: Logger;
+  private availableOutputs: Map<string, Output> = new Map();
 
   constructor(
     private vectorDb: VectorDB,
@@ -65,6 +76,10 @@ export class Processor {
     });
   }
 
+  public registerAvailableOutput(output: Output): void {
+    this.availableOutputs.set(output.name, output);
+  }
+
   async process(content: any, room: Room): Promise<ProcessedResult> {
     this.logger.debug("Processor.process", "Processing content", {
       content,
@@ -77,17 +92,12 @@ export class Processor {
     // Second, enrich content
     const enrichedContent = await this.enrichContent(content, room, new Date());
 
-    // Store in vector DB if supported
-    if (hasRoomSupport(this.vectorDb)) {
-      await this.vectorDb.storeInRoom(
-        typeof content === "string" ? content : JSON.stringify(content),
-        room.id,
-        {
-          ...contentClassification.context,
-          ...enrichedContent.context,
-        }
-      );
-    }
+    // Third, determine potential outputs
+    const suggestedOutputs = await this.determinePotentialOutputs(
+      content,
+      enrichedContent,
+      contentClassification
+    );
 
     return {
       content,
@@ -95,8 +105,130 @@ export class Processor {
         ...contentClassification.context,
         contentType: contentClassification.contentType,
       },
-      enrichedContext: enrichedContent.context,
+      enrichedContext: {
+        ...enrichedContent.context,
+        availableOutputs: Array.from(this.availableOutputs.keys()),
+      },
+      suggestedOutputs,
     };
+  }
+
+  private async determinePotentialOutputs(
+    content: any,
+    enrichedContent: EnrichedContent,
+    classification: { contentType: string; context: Record<string, any> }
+  ): Promise<SuggestedOutput[]> {
+    const availableOutputs = Array.from(this.availableOutputs.entries());
+    if (availableOutputs.length === 0) return [];
+
+    const prompt = `You are an AI assistant that analyzes content and suggests appropriate outputs.
+
+Content to analyze: 
+${typeof content === "string" ? content : JSON.stringify(content, null, 2)}
+
+Content Classification:
+${JSON.stringify(classification, null, 2)}
+
+Context:
+${JSON.stringify(enrichedContent.context, null, 2)}
+
+Available Outputs:
+${availableOutputs
+  .map(
+    ([name, output]) => `${name}:
+  Schema: ${JSON.stringify(output.schema, null, 2)}
+  Response: ${JSON.stringify(output.response, null, 2)}`
+  )
+  .join("\n\n")}
+
+Based on the content and context, determine which outputs should be triggered.
+For each appropriate output, provide:
+1. The output name
+2. The data that matches the output's schema
+3. A confidence score (0-1)
+4. Reasoning for the suggestion
+
+Respond with a JSON array in this format:
+<response>
+[
+  {
+    "name": "output_name",
+    "data": { /* data matching the output schema */ },
+    "confidence": 0.0,
+    "reasoning": "explanation"
+  }
+]
+</response>
+
+Only respond with the JSON array, no other text, return empty array if no outputs are appropriate.
+`;
+
+    try {
+      const response = await this.llmClient.analyze(prompt, {
+        system:
+          "You are an expert system that analyzes content and suggests appropriate automated responses. You are precise and careful to ensure all data matches the required schemas.",
+        temperature: 0.4,
+        formatResponse: true,
+      });
+
+      console.log("response", response);
+
+      const suggestions: SuggestedOutput[] =
+        typeof response === "string" ? JSON.parse(response) : response;
+
+      // Validate each suggestion against its output schema
+      return suggestions.filter((suggestion) => {
+        const output = this.availableOutputs.get(suggestion.name);
+        if (!output) {
+          this.logger.warn(
+            "Processor.determinePotentialOutputs",
+            "Unknown output suggested",
+            { name: suggestion.name }
+          );
+          return false;
+        }
+
+        try {
+          // Import Ajv properly
+          const Ajv = require("ajv");
+          const ajv = new Ajv();
+
+          const validate = ajv.compile(output.schema);
+          const isValid = validate(suggestion.data);
+
+          if (!isValid) {
+            this.logger.warn(
+              "Processor.determinePotentialOutputs",
+              "Invalid output data",
+              {
+                name: suggestion.name,
+                data: suggestion.data,
+                errors: validate.errors,
+              }
+            );
+            return false;
+          }
+
+          return true;
+        } catch (error) {
+          this.logger.error(
+            "Processor.determinePotentialOutputs",
+            "Schema validation error",
+            {
+              error,
+              suggestion,
+              schema: output.schema,
+            }
+          );
+          return false;
+        }
+      });
+    } catch (error) {
+      this.logger.error("Processor.determinePotentialOutputs", "Error", {
+        error,
+      });
+      return [];
+    }
   }
 
   private async classifyContent(content: any): Promise<{

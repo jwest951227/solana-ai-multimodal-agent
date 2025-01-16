@@ -68,7 +68,7 @@ export class TwitterClient {
   public createMentionsInput(interval: number = 60000) {
     return {
       name: "twitter_mentions",
-      function: async () => {
+      handler: async () => {
         await this.initialize();
         return this.checkMentions();
       },
@@ -87,7 +87,7 @@ export class TwitterClient {
   public createTimelineInput(username: string, interval: number = 60000) {
     return {
       name: `twitter_timeline_${username}`,
-      function: async () => {
+      handler: async () => {
         await this.initialize();
         const tweets = await this.fetchUserTweets(username);
         return tweets.map(this.formatTweetData);
@@ -107,7 +107,7 @@ export class TwitterClient {
   public createTweetOutput() {
     return {
       name: "twitter_tweet",
-      function: async (data: TweetData) => {
+      handler: async (data: TweetData) => {
         await this.initialize();
         return this.sendTweet(data);
       },

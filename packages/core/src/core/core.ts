@@ -114,14 +114,49 @@ export class Core {
           if (result) {
             const room = await this.ensureRoom(name);
 
+            // Register available outputs with processor
+            // we could move this to value within core rather than doing here....
+            this.outputs.forEach((output) => {
+              this.processor.registerAvailableOutput(output);
+            });
+
             const processed = await this.processor.process(result, room);
 
-            await this.roomManager.addMemory(room.id, processed.content, {
-              source: name,
-              type: "input",
-              ...processed.metadata,
-              ...processed.enrichedContext,
-            });
+            await this.roomManager.addMemory(
+              room.id,
+              JSON.stringify(processed.content), // TODO: Fix this
+              {
+                source: name,
+                type: "input",
+                ...processed.metadata,
+                ...processed.enrichedContext,
+              }
+            );
+
+            // Handle suggested outputs
+            for (const suggestion of processed.suggestedOutputs) {
+              if (suggestion.confidence >= 0.7) {
+                // Configurable threshold
+                try {
+                  this.logger.info(
+                    "Core.processInputs",
+                    "Executing suggested output",
+                    {
+                      name: suggestion.name,
+                      confidence: suggestion.confidence,
+                      reasoning: suggestion.reasoning,
+                    }
+                  );
+                  await this.executeOutput(suggestion.name, suggestion.data);
+                } catch (error) {
+                  this.logger.error(
+                    "Core.processInputs",
+                    "Error executing suggested output",
+                    { error }
+                  );
+                }
+              }
+            }
           }
         } catch (error) {
           this.logger.error("Core.processInputs", "Error processing input", {
@@ -146,13 +181,28 @@ export class Core {
     }
 
     // Validate data against schema
-    const validate = require("ajv")().compile(output.schema);
-    if (!validate(data)) {
-      throw new Error(`Invalid data for output ${name}: ${validate.errors}`);
-    }
-
     try {
-      this.logger.debug("Core.executeOutput", "Executing output", { name });
+      const Ajv = require("ajv");
+      const ajv = new Ajv();
+      const validate = ajv.compile(output.schema);
+
+      if (!validate(data)) {
+        this.logger.error("Core.executeOutput", "Schema validation failed", {
+          name,
+          data,
+          errors: validate.errors,
+          schema: output.schema,
+        });
+        throw new Error(
+          `Invalid data for output ${name}: ${JSON.stringify(validate.errors)}`
+        );
+      }
+
+      this.logger.debug("Core.executeOutput", "Executing output", {
+        name,
+        data,
+        schema: output.schema,
+      });
 
       const result = await output.handler(data);
 
@@ -171,7 +221,8 @@ export class Core {
     } catch (error) {
       this.logger.error("Core.executeOutput", "Error executing output", {
         name,
-        error,
+        data,
+        error: error instanceof Error ? error.message : error,
       });
       throw error;
     }
