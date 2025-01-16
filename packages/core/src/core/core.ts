@@ -119,9 +119,6 @@ export class Core {
           if (result) {
             const room = await this.ensureRoom(name);
 
-            // Register available outputs with processor
-            // we could move this to value within core rather than doing here....
-
             const processed = await this.processor.process(result, room);
 
             await this.roomManager.addMemory(
