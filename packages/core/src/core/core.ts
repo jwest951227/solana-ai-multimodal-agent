@@ -1,54 +1,49 @@
-import {
-  type ClientEvent,
-  type CoreEvent,
-  type LoggerConfig,
-  type TweetReceived,
-} from "../types";
 import { Logger } from "./logger";
-import { EventProcessor, type ProcessedIntent } from "./processor";
 import { Room } from "./room";
 import { RoomManager } from "./room-manager";
-import { type VectorDB } from "./vector-db";
+import type { VectorDB } from "./vector-db";
 import { LogLevel } from "../types";
-export interface EventEmitter<T extends { type: string }> {
-  emit(event: T): Promise<void>;
-  on<E extends T>(
-    eventType: E["type"],
-    handler: (event: E) => Promise<void>
-  ): void;
-  off<E extends T>(
-    eventType: E["type"],
-    handler: (event: E) => Promise<void>
-  ): void;
+import type { JSONSchemaType } from "ajv";
+import type { Processor } from "./processor";
+
+// Input interface for scheduled or one-time tasks
+export interface Input {
+  name: string;
+  handler: (...args: any[]) => Promise<any>;
+  response: any; // Type of response expected
+  interval?: number; // Time in milliseconds between runs, if not provided runs once
 }
 
-export interface Client extends EventEmitter<CoreEvent> {
-  id: string;
-  type: string;
-  listen(): Promise<void>;
-  stop(): Promise<void>;
+// Output interface for actions that push data somewhere
+export interface Output {
+  name: string;
+  handler: (data: any) => Promise<any>;
+  response: any; // Type of response expected
+  schema: JSONSchemaType<any>; // Schema to validate input data
 }
 
 export interface CoreConfig {
-  logging?: LoggerConfig;
+  logging?: {
+    level: LogLevel;
+    enableColors?: boolean;
+    enableTimestamp?: boolean;
+  };
 }
 
-export class Core implements EventEmitter<ClientEvent> {
-  private clients: Map<string, Client> = new Map();
-  private handlers: Map<string, Set<(event: ClientEvent) => Promise<void>>> =
-    new Map();
-  private processor: EventProcessor;
-  private roomManager: RoomManager;
+export class Core {
+  private inputs: Map<string, Input & { lastRun?: number }> = new Map();
+  private outputs: Map<string, Output> = new Map();
   private logger: Logger;
+  private roomManager: RoomManager;
+  private processor: Processor;
   public readonly vectorDb: VectorDB;
 
   constructor(
-    processor: EventProcessor,
     roomManager: RoomManager,
     vectorDb: VectorDB,
+    processor: Processor,
     config?: CoreConfig
   ) {
-    this.processor = processor;
     this.roomManager = roomManager;
     this.vectorDb = vectorDb;
     this.logger = new Logger(
@@ -58,227 +53,205 @@ export class Core implements EventEmitter<ClientEvent> {
         enableTimestamp: true,
       }
     );
+
+    this.processor = processor;
+
+    // Start input processing loop
+    this.processInputs();
+
+    // Register available outputs with processor
+    this.outputs.forEach((output) => {
+      this.processor.registerAvailableOutput(output);
+    });
   }
 
-  public on<E extends ClientEvent>(
-    eventType: E["type"],
-    handler: (event: E) => Promise<void>
-  ): void {
-    if (!this.handlers.has(eventType)) {
-      this.handlers.set(eventType, new Set());
-    }
-    this.handlers
-      .get(eventType)!
-      .add(handler as (event: ClientEvent) => Promise<void>);
+  /**
+   * Register a new input source
+   */
+  public registerInput(input: Input): void {
+    this.logger.info("Core.registerInput", "Registering input", {
+      name: input.name,
+    });
+
+    this.inputs.set(input.name, input);
   }
 
-  public off<E extends ClientEvent>(
-    eventType: E["type"],
-    handler: (event: E) => Promise<void>
-  ): void {
-    const handlers = this.handlers.get(eventType);
-    if (handlers) {
-      handlers.delete(handler as (event: ClientEvent) => Promise<void>);
-    }
+  /**
+   * Register a new output destination
+   */
+  public registerOutput(output: Output): void {
+    this.logger.info("Core.registerOutput", "Registering output", {
+      name: output.name,
+    });
+
+    this.outputs.set(output.name, output);
   }
 
-  public async emit(event: ClientEvent): Promise<void> {
-    this.logger.debug("Core.emit", "Received event", {
-      type: event.type,
-      source: event.source,
-    });
+  /**
+   * Process registered inputs on intervals
+   */
+  private async processInputs(): Promise<void> {
+    while (true) {
+      for (const [name, input] of this.inputs.entries()) {
+        const now = Date.now();
 
-    // Get or create room based on event context
-    const room = await this.ensureRoom(event);
-    this.logger.trace("Core.emit", "Ensured room", {
-      roomId: room.id,
-      platform: room.platform,
-    });
+        // Skip if not ready to run again
+        if (
+          input.interval &&
+          input.lastRun &&
+          now - input.lastRun < input.interval
+        ) {
+          continue;
+        }
 
-    // Add event to room memory
-    await this.roomManager.addMemory(room.id, event.content, {
-      eventType: event.type,
-      source: event.source,
-      ...event.metadata,
-    });
+        try {
+          this.logger.debug("Core.processInputs", "Processing input", { name });
 
-    this.logger.debug("Core.emit", "Added to room memory", { roomId: room.id });
+          const result = await input.handler();
 
-    // Process with room context
-    this.logger.trace("Core.emit", "Processing event", { roomId: room.id });
-    const result = await this.processor.process(event, room);
-
-    this.logger.debug("Core.emit", "Processed event", { result });
-
-    // Execute actions and route events
-    await this.executeIntentActions(result.intents);
-    await this.routeSuggestedActions(result.suggestedActions);
-
-    console.log("event.type", event.type);
-    // Notify handlers
-    const handlers = this.handlers.get(event.type);
-    if (handlers) {
-      this.logger.debug("Core.emit", "Notifying event handlers", {
-        type: event.type,
-        handlerCount: handlers.size,
-      });
-      await Promise.all(
-        [...handlers].map((handler) => {
-          this.logger.trace("Core.emit", "Calling handler", {
-            type: event.type,
-            metadata: { ...event.metadata, ...result.enrichedContext },
+          // Update last run time
+          this.inputs.set(name, {
+            ...input,
+            lastRun: now,
           });
-          return handler({
-            ...event,
-            metadata: { ...event.metadata, ...result.enrichedContext },
+
+          // Store result in room memory
+          if (result) {
+            const room = await this.ensureRoom(name);
+
+            const processed = await this.processor.process(result, room);
+
+            await this.roomManager.addMemory(
+              room.id,
+              JSON.stringify(processed.content), // TODO: Fix this everything being dumped into memory
+              {
+                source: name,
+                type: "input",
+                ...processed.metadata,
+                ...processed.enrichedContext,
+              }
+            );
+
+            // Handle suggested outputs
+            for (const suggestion of processed.suggestedOutputs) {
+              if (suggestion.confidence >= 0.7) {
+                // Configurable threshold
+                try {
+                  this.logger.info(
+                    "Core.processInputs",
+                    "Executing suggested output",
+                    {
+                      name: suggestion.name,
+                      confidence: suggestion.confidence,
+                      reasoning: suggestion.reasoning,
+                    }
+                  );
+                  await this.executeOutput(suggestion.name, suggestion.data);
+                } catch (error) {
+                  this.logger.error(
+                    "Core.processInputs",
+                    "Error executing suggested output",
+                    { error }
+                  );
+                }
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.error("Core.processInputs", "Error processing input", {
+            name,
+            error,
           });
-        })
-      );
-      this.logger.debug("Core.emit", "Finished notifying handlers", {
-        type: event.type,
-      });
-    } else {
-      this.logger.trace("Core.emit", "No handlers registered for event type", {
-        type: event.type,
-      });
+        }
+      }
+
+      // Small delay between iterations
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
-  private async ensureRoom(event: ClientEvent): Promise<Room> {
-    const platformId = this.getPlatformId(event);
-    const platform = this.getPlatform(event);
+  /**
+   * Execute an output with data
+   */
+  public async executeOutput(name: string, data: any): Promise<any> {
+    const output = this.outputs.get(name);
+    if (!output) {
+      throw new Error(`No output registered with name: ${name}`);
+    }
 
-    let room = await this.roomManager.getRoomByPlatformId(platformId, platform);
+    // Validate data against schema
+    try {
+      const Ajv = require("ajv");
+      const ajv = new Ajv();
+      const validate = ajv.compile(output.schema);
+
+      if (!validate(data)) {
+        this.logger.error("Core.executeOutput", "Schema validation failed", {
+          name,
+          data,
+          errors: validate.errors,
+          schema: output.schema,
+        });
+        throw new Error(
+          `Invalid data for output ${name}: ${JSON.stringify(validate.errors)}`
+        );
+      }
+
+      this.logger.debug("Core.executeOutput", "Executing output", {
+        name,
+        data,
+        schema: output.schema,
+      });
+
+      const result = await output.handler(data);
+
+      // Store in room memory
+      const room = await this.ensureRoom(name);
+      const processed = await this.processor.process(result, room);
+
+      await this.roomManager.addMemory(room.id, processed.content, {
+        source: name,
+        type: "output",
+        ...processed.metadata,
+        ...processed.enrichedContext,
+      });
+
+      return result;
+    } catch (error) {
+      this.logger.error("Core.executeOutput", "Error executing output", {
+        name,
+        data,
+        error: error instanceof Error ? error.message : error,
+      });
+      throw error;
+    }
+  }
+
+  private async ensureRoom(name: string): Promise<Room> {
+    let room = await this.roomManager.getRoomByPlatformId(name, "core");
 
     if (!room) {
-      room = await this.roomManager.createRoom(platformId, platform, {
-        name: this.getRoomName(event),
-        description: this.getRoomDescription(event),
-        participants: this.getParticipants(event),
-        metadata: event.metadata,
+      room = await this.roomManager.createRoom(name, "core", {
+        name,
+        description: `Room for ${name}`,
+        participants: [],
       });
     }
 
     return room;
   }
 
-  private getPlatformId(event: ClientEvent): string {
-    if (event.type === "tweet_received") {
-      return (
-        (event as TweetReceived).metadata?.conversationId ??
-        (event as TweetReceived).tweetId
-      );
-    }
-    return event.source;
+  /**
+   * Remove an input
+   */
+  public removeInput(name: string): void {
+    this.inputs.delete(name);
   }
 
-  private getPlatform(event: ClientEvent): string {
-    return event.source;
-  }
-
-  private getRoomName(event: ClientEvent): string {
-    if (event.type === "tweet_received") {
-      return `Twitter Thread ${(event as TweetReceived).tweetId}`;
-    }
-    return `${event.source} Room`;
-  }
-
-  private getRoomDescription(event: ClientEvent): string {
-    if (event.type === "tweet_received") {
-      return `Twitter conversation thread starting with tweet ${
-        (event as TweetReceived).tweetId
-      }`;
-    }
-    return `Conversation room for ${event.source}`;
-  }
-
-  private getParticipants(event: ClientEvent): string[] {
-    if (event.type === "tweet_received") {
-      return [(event as TweetReceived).username];
-    }
-    return [];
-  }
-
-  private async executeIntentActions(
-    intents: ProcessedIntent[]
-  ): Promise<void> {
-    this.logger.debug("Core.executeIntentActions", "Executing intents", {
-      count: intents.length,
-    });
-    for (const intent of intents) {
-      if (intent.action) {
-        this.logger.trace("Core.executeIntentActions", "Executing action", {
-          type: intent.type,
-          action: intent.action,
-          confidence: intent.confidence,
-        });
-        await this.executeAction(intent);
-      }
-    }
-  }
-
-  private async executeAction(intent: ProcessedIntent): Promise<void> {
-    // Implementation of immediate actions
-    // This could be things like database updates, logging, etc.
-    this.logger.trace("Core.executeAction", "Executing action", {
-      type: intent.type,
-      action: intent.action,
-      confidence: intent.confidence,
-    });
-  }
-
-  private async routeSuggestedActions(actions: CoreEvent[]): Promise<void> {
-    for (const action of actions) {
-      await this.routeEvent(action);
-    }
-  }
-
-  public registerClient(client: Client): void {
-    this.logger.info("Core.registerClient", "Registering client", {
-      id: client.id,
-      type: client.type,
-    });
-
-    this.handlers.set(client.type, new Set());
-
-    this.clients.set(client.id, client);
-    client.listen().catch((err) => {
-      this.logger.error("Core.registerClient", "Failed to start client", {
-        id: client.id,
-        error: err.message,
-      });
-    });
-  }
-
-  public removeClient(clientId: string): void {
-    const client = this.clients.get(clientId);
-    if (client) {
-      client.stop().catch((err) => {
-        console.error(`Failed to stop client ${clientId}:`, err);
-      });
-      this.clients.delete(clientId);
-    }
-  }
-
-  protected async routeEvent(event: CoreEvent): Promise<void> {
-    this.logger.trace("Core.routeEvent", "Routing event", {
-      type: event.type,
-      target: event.target,
-    });
-
-    const targetClient = this.clients.get(event.target);
-    if (targetClient) {
-      await targetClient.emit(event);
-      this.logger.debug("Core.routeEvent", "Event routed successfully", {
-        type: event.type,
-        target: event.target,
-        clientType: targetClient.type,
-      });
-    } else {
-      this.logger.warn("Core.routeEvent", "Target client not found", {
-        type: event.type,
-        target: event.target,
-      });
-    }
+  /**
+   * Remove an output
+   */
+  public removeOutput(name: string): void {
+    this.outputs.delete(name);
   }
 }
