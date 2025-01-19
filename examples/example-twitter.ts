@@ -9,6 +9,7 @@ import { LogLevel } from "../packages/core/src/types";
 import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
 import { JSONSchemaType } from "ajv";
+import { Consciousness } from "../packages/core/src/core/consciousness";
 
 async function main() {
   // Initialize core dependencies
@@ -88,6 +89,68 @@ async function main() {
   //     });
   //   }
 
+  // Initialize consciousness
+  const consciousness = new Consciousness(llmClient, roomManager, {
+    intervalMs: 300000, // Think every 5 minutes
+    minConfidence: 0.7,
+    logLevel: LogLevel.DEBUG,
+  });
+
+  // Register consciousness input
+  core.registerInput({
+    name: "consciousness_thoughts",
+    handler: async () => {
+      console.log(chalk.blue("🧠 Generating thoughts..."));
+      const thought = await consciousness.start();
+
+      // Only return thought if it's not an error and has sufficient confidence
+      if (thought.type !== "error" && thought.type !== "low_confidence") {
+        // If it's a social_share type thought, format it for Twitter
+        if (thought.metadata?.type === "social_share") {
+          return {
+            type: "thought",
+            content: thought.content,
+            metadata: {
+              ...thought.metadata,
+              suggestedPlatform: "twitter",
+              thoughtType: "social_share",
+            },
+          };
+        }
+      }
+      return null;
+    },
+    response: {
+      type: "string",
+      content: "string",
+      metadata: "object",
+    },
+    interval: 300000, // Check for new thoughts every 5 minutes
+  });
+
+  // Register Twitter output for thoughts
+  core.registerOutput({
+    name: "twitter_thought",
+    handler: async (data: unknown) => {
+      const thoughtData = data as { content: string };
+      return twitter.createTweetOutput().handler({
+        content: thoughtData.content,
+      });
+    },
+    response: {
+      success: "boolean",
+      tweetId: "string",
+    },
+    schema: {
+      type: "object" as const,
+      properties: {
+        content: { type: "string" as const, nullable: false },
+      },
+      required: ["content"],
+      additionalProperties: false,
+    } as any,
+  });
+
   // Register Twitter output for auto-replies
   core.registerOutput({
     name: "twitter_reply",
@@ -118,12 +181,14 @@ async function main() {
   process.on("SIGINT", async () => {
     console.log(chalk.yellow("\n\nShutting down..."));
 
+    // Stop consciousness
+    await consciousness.stop();
+
     // Remove all inputs and outputs
     core.removeInput("twitter_mentions");
-    // for (const account of accountsToMonitor) {
-    //   core.removeInput(`twitter_timeline_${account}`);
-    // }
+    core.removeInput("consciousness_thoughts");
     core.removeOutput("twitter_reply");
+    core.removeOutput("twitter_thought");
 
     console.log(chalk.green("✅ Shutdown complete"));
     process.exit(0);

@@ -10,6 +10,10 @@ export interface Thought {
   confidence: number;
   context?: Record<string, any>;
   timestamp: Date;
+  type: string;
+  source: string;
+  metadata?: Record<string, any>;
+  roomId?: string;
 }
 
 export type ThoughtType =
@@ -166,15 +170,8 @@ Focus on:
     });
   }
 
-  public async start(): Promise<void> {
-    if (this.isThinking) return;
-
-    this.isThinking = true;
-    const intervalMs = this.config.intervalMs || 60000; // Default to 1 minute
-
-    this.thoughtInterval = setInterval(() => this.think(), intervalMs);
-
-    this.logger.info("Consciousness.start", "Internal thought process started");
+  public async start(): Promise<Thought> {
+    return this.think();
   }
 
   public async stop(): Promise<void> {
@@ -186,15 +183,13 @@ Focus on:
     this.logger.info("Consciousness.stop", "Internal thought process stopped");
   }
 
-  private async think(): Promise<{
-    type: string;
-    source: string;
-    content: string;
-    timestamp: Date;
-    metadata: Record<string, any>;
-  }> {
+  private async think(): Promise<Thought> {
+    console.log("thinking");
     try {
+      console.log("generating thought");
       const thought = await this.generateThought();
+
+      console.log("thought", thought);
 
       if (thought.confidence >= (this.config.minConfidence || 0.7)) {
         return {
@@ -202,6 +197,7 @@ Focus on:
           source: "consciousness",
           content: thought.content,
           timestamp: thought.timestamp,
+          confidence: thought.confidence,
           metadata: {
             ...thought.context,
             confidence: thought.confidence,
@@ -224,6 +220,7 @@ Focus on:
           source: "consciousness",
           content: "Thought was below confidence threshold",
           timestamp: new Date(),
+          confidence: thought.confidence,
           metadata: {
             confidence: thought.confidence,
             threshold: this.config.minConfidence || 0.7,
@@ -240,6 +237,7 @@ Focus on:
         source: "consciousness",
         content: "Error occurred during thought process",
         timestamp: new Date(),
+        confidence: 0,
         metadata: {
           error: error instanceof Error ? error.message : String(error),
         },
@@ -249,8 +247,10 @@ Focus on:
 
   private async generateThought(): Promise<Thought> {
     // Get all rooms and their recent memories
-    const rooms = await this.roomManager.listRooms();
-    const recentMemories = this.getRecentMemories(rooms);
+
+    const recentMemories = this.getRecentMemories(
+      await this.roomManager.listRooms()
+    );
 
     // Randomly select a thought type based on context
     const thoughtType = await this.determineThoughtType(recentMemories);
@@ -283,6 +283,8 @@ Return only the JSON object, no other text or formatting.`;
     return {
       content: result.thought,
       confidence: result.confidence,
+      type: thoughtType,
+      source: "consciousness",
       context: {
         reasoning: result.reasoning,
         ...result.context,

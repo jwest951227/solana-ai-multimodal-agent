@@ -172,6 +172,10 @@ ${availableOutputs
   )
   .join("\n\n")}
 
+If the output is for a message user the personality of the character to determine if the output was successful.
+
+${JSON.stringify(this.character, null, 2)}
+
 Based on the content and context, determine which outputs should be triggered.
 For each appropriate output, provide:
 1. The output name
