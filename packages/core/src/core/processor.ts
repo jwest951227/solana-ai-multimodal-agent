@@ -6,17 +6,20 @@ import type { Character } from "./character";
 import type { SearchResult } from "../types";
 import { LogLevel } from "../types";
 import type { Output } from "./core";
+import type { JSONSchemaType } from "ajv";
 
 export interface ProcessedResult {
   content: any;
   metadata: Record<string, any>;
   enrichedContext: EnrichedContext;
-  suggestedOutputs: SuggestedOutput[];
+  suggestedOutputs: SuggestedOutput<any>[];
+  isOutputSuccess?: boolean;
+  alreadyProcessed?: boolean;
 }
 
-export interface SuggestedOutput {
+export interface SuggestedOutput<T> {
   name: string;
-  data: any;
+  data: T;
   confidence: number;
   reasoning: string;
 }
@@ -67,7 +70,7 @@ export class Processor {
     private vectorDb: VectorDB,
     private llmClient: LLMClient,
     private character: Character,
-    logLevel: LogLevel = LogLevel.INFO
+    logLevel: LogLevel = LogLevel.ERROR
   ) {
     this.logger = new Logger({
       level: logLevel,
@@ -86,6 +89,25 @@ export class Processor {
       roomId: room.id,
     });
 
+    // Check if this content was already processed
+    const contentId = this.generateContentId(content);
+    const alreadyProcessed = await this.hasProcessedContent(contentId, room);
+
+    if (alreadyProcessed) {
+      return {
+        content,
+        metadata: {},
+        enrichedContext: {
+          timeContext: this.getTimeContext(new Date()),
+          summary: "",
+          topics: [],
+          relatedMemories: [],
+        },
+        suggestedOutputs: [],
+        alreadyProcessed: true,
+      };
+    }
+
     // First, classify the content
     const contentClassification = await this.classifyContent(content);
 
@@ -99,6 +121,9 @@ export class Processor {
       contentClassification
     );
 
+    // Store that we've processed this content
+    await this.markContentAsProcessed(contentId, room);
+
     return {
       content,
       metadata: {
@@ -110,6 +135,7 @@ export class Processor {
         availableOutputs: Array.from(this.availableOutputs.keys()),
       },
       suggestedOutputs,
+      alreadyProcessed: false,
     };
   }
 
@@ -117,7 +143,7 @@ export class Processor {
     content: any,
     enrichedContent: EnrichedContent,
     classification: { contentType: string; context: Record<string, any> }
-  ): Promise<SuggestedOutput[]> {
+  ): Promise<SuggestedOutput<any>[]> {
     const availableOutputs = Array.from(this.availableOutputs.entries());
     if (availableOutputs.length === 0) return [];
 
@@ -131,6 +157,11 @@ ${JSON.stringify(classification, null, 2)}
 
 Context:
 ${JSON.stringify(enrichedContent.context, null, 2)}
+
+If this is feedback from a previous output:
+1. First determine if the output was successful
+2. If successful, return an empty array - no new actions needed
+3. Only suggest new outputs if the previous action failed or requires follow-up
 
 Available Outputs:
 ${availableOutputs
@@ -160,7 +191,7 @@ Respond with a JSON array in this format:
 ]
 </response>
 
-Only respond with the JSON array, no other text, return empty array if no outputs are appropriate.
+Only respond with the JSON array, no other text, return empty array if no outputs are appropriate or if feedback indicates success.
 `;
 
     try {
@@ -171,9 +202,7 @@ Only respond with the JSON array, no other text, return empty array if no output
         formatResponse: true,
       });
 
-      console.log("response", response);
-
-      const suggestions: SuggestedOutput[] =
+      const suggestions: SuggestedOutput<any>[] =
         typeof response === "string" ? JSON.parse(response) : response;
 
       // Validate each suggestion against its output schema
@@ -400,5 +429,83 @@ Return only valid JSON, no other text.`;
     if (hoursDiff < 168) return "this_week";
     if (hoursDiff < 720) return "this_month";
     return "older";
+  }
+
+  // Helper method to generate a consistent ID for content
+  private generateContentId(content: any): string {
+    if (typeof content === "string") {
+      return content;
+    }
+
+    // If content has an ID field, use that
+    if (content.id) {
+      return content.id.toString();
+    }
+
+    // For arrays, map through and get IDs
+    if (Array.isArray(content)) {
+      return content
+        .map((item) => {
+          // Look for any kind of ID in metadata
+          if (item.metadata?.id) return item.metadata.id;
+          // Look for any ID field at root level
+          if (item.id) return item.id;
+          // Look for common ID patterns in metadata
+          const metadataIds = item.metadata
+            ? Object.entries(item.metadata).find(([key]) =>
+                key.toLowerCase().includes("id")
+              )
+            : null;
+          if (metadataIds) return metadataIds[1];
+          // Fallback to content hash
+          return JSON.stringify(item);
+        })
+        .join("_");
+    }
+
+    // If content has metadata with an ID
+    if (content.metadata) {
+      // Look for any ID field in metadata
+      const metadataIds = Object.entries(content.metadata).find(([key]) =>
+        key.toLowerCase().includes("id")
+      );
+      if (metadataIds) return metadataIds[1]?.toString() || "";
+    }
+
+    // Fallback to stringifying the content
+    return JSON.stringify(content);
+  }
+
+  // Check if we've already processed this content
+  private async hasProcessedContent(
+    contentId: string,
+    room: Room
+  ): Promise<boolean> {
+    if (!hasRoomSupport(this.vectorDb)) {
+      return false;
+    }
+
+    const similar = await this.vectorDb.findSimilarInRoom(
+      `processed_content:${contentId}`,
+      room.id,
+      1
+    );
+
+    return similar.length > 0;
+  }
+
+  // Mark content as processed
+  private async markContentAsProcessed(
+    contentId: string,
+    room: Room
+  ): Promise<void> {
+    if (!hasRoomSupport(this.vectorDb)) {
+      return;
+    }
+
+    await this.vectorDb.storeInRoom(`processed_content:${contentId}`, room.id, {
+      type: "processed_marker",
+      timestamp: new Date().toISOString(),
+    });
   }
 }

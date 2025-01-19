@@ -1,25 +1,31 @@
+import Ajv, { type ValidateFunction } from "ajv";
+import type { JSONSchemaType } from "ajv";
+
 import { Logger } from "./logger";
 import { Room } from "./room";
 import { RoomManager } from "./room-manager";
 import type { VectorDB } from "./vector-db";
 import { LogLevel } from "../types";
-import type { JSONSchemaType } from "ajv";
-import type { Processor } from "./processor";
+import type { Processor, SuggestedOutput } from "./processor";
 
-// Input interface for scheduled or one-time tasks
-export interface Input {
+/**
+ * Defines a scheduled or one-time task to be processed as 'input'.
+ */
+export interface Input<T = unknown> {
   name: string;
-  handler: (...args: any[]) => Promise<any>;
-  response: any; // Type of response expected
-  interval?: number; // Time in milliseconds between runs, if not provided runs once
+  handler: (...args: unknown[]) => Promise<T>;
+  response: T;
+  interval?: number;
 }
 
-// Output interface for actions that push data somewhere
-export interface Output {
+/**
+ * Defines an action ('output') that sends data somewhere, e.g. HTTP or other side effects.
+ */
+export interface Output<T = unknown> {
   name: string;
-  handler: (data: any) => Promise<any>;
-  response: any; // Type of response expected
-  schema: JSONSchemaType<any>; // Schema to validate input data
+  handler: (data: T) => Promise<unknown>;
+  response: T;
+  schema: JSONSchemaType<T>;
 }
 
 export interface CoreConfig {
@@ -31,227 +37,328 @@ export interface CoreConfig {
 }
 
 export class Core {
-  private inputs: Map<string, Input & { lastRun?: number }> = new Map();
-  private outputs: Map<string, Output> = new Map();
-  private logger: Logger;
-  private roomManager: RoomManager;
-  private processor: Processor;
+  private readonly inputs = new Map<string, Input & { lastRun?: number }>();
+  private readonly outputs = new Map<string, Output>();
+  private readonly logger: Logger;
+  private readonly processor: Processor;
   public readonly vectorDb: VectorDB;
 
+  private ajv: Ajv;
+  private validatorCache = new Map<string, ValidateFunction>();
+  private inputProcessingIntervalId?: NodeJS.Timeout;
+
   constructor(
-    roomManager: RoomManager,
+    private readonly roomManager: RoomManager,
     vectorDb: VectorDB,
     processor: Processor,
     config?: CoreConfig
   ) {
-    this.roomManager = roomManager;
     this.vectorDb = vectorDb;
+    this.processor = processor;
     this.logger = new Logger(
       config?.logging ?? {
-        level: LogLevel.INFO,
+        level: LogLevel.ERROR,
         enableColors: true,
         enableTimestamp: true,
       }
     );
+    this.ajv = new Ajv();
 
-    this.processor = processor;
-
-    // Start input processing loop
-    this.processInputs();
-
-    // Register available outputs with processor
-    this.outputs.forEach((output) => {
-      this.processor.registerAvailableOutput(output);
-    });
+    // Start the input processing on an interval (every 1 second by default).
+    this.startProcessingInputs(1000);
   }
 
   /**
-   * Register a new input source
+   * Registers a new input source.
    */
   public registerInput(input: Input): void {
     this.logger.info("Core.registerInput", "Registering input", {
       name: input.name,
     });
-
     this.inputs.set(input.name, input);
   }
 
   /**
-   * Register a new output destination
+   * Registers a new output destination.
    */
   public registerOutput(output: Output): void {
     this.logger.info("Core.registerOutput", "Registering output", {
       name: output.name,
     });
-
     this.outputs.set(output.name, output);
+
+    // Optionally, register the output as "available" to the Processor
+    this.processor.registerAvailableOutput(output);
   }
 
   /**
-   * Process registered inputs on intervals
+   * Removes an existing input.
    */
-  private async processInputs(): Promise<void> {
-    while (true) {
-      for (const [name, input] of this.inputs.entries()) {
-        const now = Date.now();
-
-        // Skip if not ready to run again
-        if (
-          input.interval &&
-          input.lastRun &&
-          now - input.lastRun < input.interval
-        ) {
-          continue;
-        }
-
-        try {
-          this.logger.debug("Core.processInputs", "Processing input", { name });
-
-          const result = await input.handler();
-
-          // Update last run time
-          this.inputs.set(name, {
-            ...input,
-            lastRun: now,
-          });
-
-          // Store result in room memory
-          if (result) {
-            const room = await this.ensureRoom(name);
-
-            const processed = await this.processor.process(result, room);
-
-            await this.roomManager.addMemory(
-              room.id,
-              JSON.stringify(processed.content), // TODO: Fix this everything being dumped into memory
-              {
-                source: name,
-                type: "input",
-                ...processed.metadata,
-                ...processed.enrichedContext,
-              }
-            );
-
-            // Handle suggested outputs
-            for (const suggestion of processed.suggestedOutputs) {
-              if (suggestion.confidence >= 0.7) {
-                // Configurable threshold
-                try {
-                  this.logger.info(
-                    "Core.processInputs",
-                    "Executing suggested output",
-                    {
-                      name: suggestion.name,
-                      confidence: suggestion.confidence,
-                      reasoning: suggestion.reasoning,
-                    }
-                  );
-                  await this.executeOutput(suggestion.name, suggestion.data);
-                } catch (error) {
-                  this.logger.error(
-                    "Core.processInputs",
-                    "Error executing suggested output",
-                    { error }
-                  );
-                }
-              }
-            }
-          }
-        } catch (error) {
-          this.logger.error("Core.processInputs", "Error processing input", {
-            name,
-            error,
-          });
-        }
-      }
-
-      // Small delay between iterations
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+  public removeInput(name: string): void {
+    if (this.inputs.has(name)) {
+      this.logger.info("Core.removeInput", `Removing input: ${name}`);
+      this.inputs.delete(name);
     }
   }
 
   /**
-   * Execute an output with data
+   * Removes an existing output.
    */
-  public async executeOutput(name: string, data: any): Promise<any> {
+  public removeOutput(name: string): void {
+    if (this.outputs.has(name)) {
+      this.logger.info("Core.removeOutput", `Removing output: ${name}`);
+      this.outputs.delete(name);
+    }
+  }
+
+  /**
+   * Starts periodically processing all registered inputs.
+   */
+  private startProcessingInputs(pollIntervalMs: number): void {
+    if (this.inputProcessingIntervalId) {
+      clearInterval(this.inputProcessingIntervalId);
+    }
+
+    this.inputProcessingIntervalId = setInterval(() => {
+      const tasks = [...this.inputs.entries()].map(([name, input]) =>
+        this.handleInput(name, input)
+      );
+      // We don't await here to avoid blocking if tasks take a long time.
+      Promise.all(tasks).catch((err) => {
+        this.logger.error(
+          "Core.startProcessingInputs",
+          "Error in concurrent input processing",
+          err
+        );
+      });
+    }, pollIntervalMs) as unknown as NodeJS.Timeout;
+  }
+
+  /**
+   * Stop the periodic input processing (if running).
+   */
+  public stopProcessing(): void {
+    if (this.inputProcessingIntervalId) {
+      clearInterval(this.inputProcessingIntervalId);
+      this.inputProcessingIntervalId = undefined;
+    }
+  }
+
+  /**
+   * Processes a single input, if its interval has elapsed.
+   */
+  private async handleInput(
+    name: string,
+    input: Input & { lastRun?: number }
+  ): Promise<void> {
+    const now = Date.now();
+
+    if (
+      input.interval &&
+      input.lastRun &&
+      now - input.lastRun < input.interval
+    ) {
+      return;
+    }
+
+    try {
+      this.logger.debug("Core.handleInput", "Processing input", { name });
+      const result = await input.handler();
+
+      // Update last run
+      input.lastRun = now;
+      this.inputs.set(name, input);
+
+      if (result) {
+        const room = await this.roomManager.ensureRoom(name, "core");
+        const processed = await this.processor.process(result, room);
+
+        // Only proceed if content hasn't been processed before
+        if (!processed.alreadyProcessed) {
+          // Store input result in memory
+          await this.roomManager.addMemory(
+            room.id,
+            JSON.stringify(processed.content),
+            {
+              source: name,
+              type: "input",
+              ...processed.metadata,
+              ...processed.enrichedContext,
+            }
+          );
+
+          // Handle any suggested outputs
+          await this.handleSuggestedOutputs(processed.suggestedOutputs);
+        }
+      }
+    } catch (error) {
+      this.logger.error("Core.handleInput", "Error processing input", {
+        name,
+        error,
+      });
+    }
+  }
+
+  /**
+   * Executes all suggested outputs if their confidence meets the threshold.
+   */
+  private async handleSuggestedOutputs(
+    suggestedOutputs: SuggestedOutput<any>[]
+  ): Promise<void> {
+    for (const suggestion of suggestedOutputs) {
+      if (suggestion.confidence >= 0.7) {
+        try {
+          this.logger.info(
+            "Core.handleSuggestedOutputs",
+            "Executing suggested output",
+            {
+              name: suggestion.name,
+              confidence: suggestion.confidence,
+              reasoning: suggestion.reasoning,
+            }
+          );
+          const result = await this.executeOutput(
+            suggestion.name,
+            suggestion.data
+          );
+
+          await this.handleFeedback(suggestion.name, {
+            type: "output",
+            notes:
+              "IMPORTANT: This is the result of the output, you should only return more actions if you think the output was not accepted. Do not return more actions if the output was accepted or successful.",
+            output: suggestion,
+            result,
+          });
+        } catch (error) {
+          this.logger.error(
+            "Core.handleSuggestedOutputs",
+            "Error executing suggested output",
+            {
+              error,
+            }
+          );
+        }
+      }
+    }
+  }
+
+  /**
+   * Executes a named output with the provided data (after schema validation).
+   */
+  public async executeOutput<T>(name: string, data: T): Promise<T> {
     const output = this.outputs.get(name);
     if (!output) {
       throw new Error(`No output registered with name: ${name}`);
     }
 
-    // Validate data against schema
-    try {
-      const Ajv = require("ajv");
-      const ajv = new Ajv();
-      const validate = ajv.compile(output.schema);
-
-      if (!validate(data)) {
-        this.logger.error("Core.executeOutput", "Schema validation failed", {
-          name,
-          data,
-          errors: validate.errors,
-          schema: output.schema,
-        });
-        throw new Error(
-          `Invalid data for output ${name}: ${JSON.stringify(validate.errors)}`
-        );
-      }
-
-      this.logger.debug("Core.executeOutput", "Executing output", {
+    // Validate against the output's schema
+    const validateFn = this.getValidatorForSchema(name, output.schema);
+    if (!validateFn(data)) {
+      this.logger.error("Core.executeOutput", "Schema validation failed", {
         name,
         data,
+        errors: validateFn.errors,
         schema: output.schema,
       });
+      throw new Error(
+        `Invalid data for output ${name}: ${JSON.stringify(validateFn.errors)}`
+      );
+    }
 
+    this.logger.debug("Core.executeOutput", "Executing output", {
+      name,
+      data,
+      schema: output.schema,
+    });
+
+    try {
       const result = await output.handler(data);
 
-      // Store in room memory
-      const room = await this.ensureRoom(name);
+      // Store output result in memory
+      const room = await this.roomManager.ensureRoom(name, "core");
       const processed = await this.processor.process(result, room);
 
-      await this.roomManager.addMemory(room.id, processed.content, {
-        source: name,
-        type: "output",
-        ...processed.metadata,
-        ...processed.enrichedContext,
-      });
+      await this.roomManager.addMemory(
+        room.id,
+        JSON.stringify(processed.content),
+        {
+          source: name,
+          type: "output",
+          ...processed.metadata,
+          ...processed.enrichedContext,
+        }
+      );
 
-      return result;
+      return result as T;
     } catch (error) {
       this.logger.error("Core.executeOutput", "Error executing output", {
         name,
         data,
         error: error instanceof Error ? error.message : error,
       });
-      throw error;
+      return error as T;
     }
   }
 
-  private async ensureRoom(name: string): Promise<Room> {
-    let room = await this.roomManager.getRoomByPlatformId(name, "core");
+  /**
+   * Feeds the result of an output *back* into the agent's context.
+   * This method is key to creating an agent "feedback loop,"
+   * where output results can trigger new decisions.
+   */
+  private async handleFeedback<T>(
+    outputName: string,
+    outputResult: T
+  ): Promise<void> {
+    try {
+      this.logger.debug(
+        "Core.handleFeedback",
+        "Handling output feedback as new input",
+        {
+          outputName,
+          outputResult,
+        }
+      );
 
-    if (!room) {
-      room = await this.roomManager.createRoom(name, "core", {
-        name,
-        description: `Room for ${name}`,
-        participants: [],
+      const feedbackRoom = await this.roomManager.ensureRoom(
+        `feedback_blackboard`,
+        "core"
+      );
+
+      const processedFeedback = await this.processor.process(
+        JSON.stringify(outputResult),
+        feedbackRoom
+      );
+
+      // Only continue with suggested outputs if the previous output wasn't successful
+      if (!processedFeedback.isOutputSuccess) {
+        await this.handleSuggestedOutputs(processedFeedback.suggestedOutputs);
+      } else {
+        this.logger.debug(
+          "Core.handleFeedback",
+          "Output was successful, stopping feedback loop",
+          { outputName }
+        );
+      }
+    } catch (error) {
+      this.logger.error("Core.handleFeedback", "Error handling feedback loop", {
+        outputName,
+        error,
       });
     }
-
-    return room;
   }
 
   /**
-   * Remove an input
+   * Returns a memoized validator for the given schema.
+   * Avoids recompiling schemas repeatedly for the same output.
    */
-  public removeInput(name: string): void {
-    this.inputs.delete(name);
-  }
-
-  /**
-   * Remove an output
-   */
-  public removeOutput(name: string): void {
-    this.outputs.delete(name);
+  private getValidatorForSchema(
+    outputName: string,
+    schema: JSONSchemaType<unknown>
+  ): ValidateFunction {
+    if (!this.validatorCache.has(outputName)) {
+      const validate = this.ajv.compile(schema);
+      this.validatorCache.set(outputName, validate);
+    }
+    return this.validatorCache.get(outputName)!;
   }
 }

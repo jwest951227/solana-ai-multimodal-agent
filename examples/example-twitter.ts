@@ -69,44 +69,45 @@ async function main() {
     interval: 60000,
   });
 
-  // Monitor specific Twitter accounts
-  const accountsToMonitor = ["elonmusk", "sama", "naval"];
+  //   // Monitor specific Twitter accounts
+  //   const accountsToMonitor = ["elonmusk", "sama", "naval"];
 
-  for (const account of accountsToMonitor) {
-    core.registerInput({
-      name: `twitter_timeline_${account}`,
-      handler: async () => {
-        console.log(chalk.blue(`📱 Checking ${account}'s timeline...`));
-        return twitter.createTimelineInput(account, 300000).handler();
-      },
-      response: {
-        type: "string",
-        content: "string",
-        metadata: "object",
-      },
-      interval: 300000, // Check timelines every 5 minutes
-    });
-  }
+  //   for (const account of accountsToMonitor) {
+  //     core.registerInput({
+  //       name: `twitter_timeline_${account}`,
+  //       handler: async () => {
+  //         console.log(chalk.blue(`📱 Checking ${account}'s timeline...`));
+  //         return twitter.createTimelineInput(account, 300000).handler();
+  //       },
+  //       response: {
+  //         type: "string",
+  //         content: "string",
+  //         metadata: "object",
+  //       },
+  //       interval: 300000, // Check timelines every 5 minutes
+  //     });
+  //   }
 
   // Register Twitter output for auto-replies
   core.registerOutput({
     name: "twitter_reply",
-    handler: async (data: { content: string; inReplyTo: string }) => {
-      return twitter.createTweetOutput().handler(data);
+    handler: async (data: unknown) => {
+      const tweetData = data as { content: string; inReplyTo: string };
+      return twitter.createTweetOutput().handler(tweetData);
     },
     response: {
       success: "boolean",
       tweetId: "string",
     },
     schema: {
-      type: "object",
+      type: "object" as const,
       properties: {
-        content: { type: "string", nullable: false },
-        inReplyTo: { type: "string", nullable: false },
+        content: { type: "string" as const, nullable: false },
+        inReplyTo: { type: "string" as const, nullable: false },
       },
       required: ["content", "inReplyTo"],
       additionalProperties: false,
-    } as unknown as JSONSchemaType<any>,
+    } as any,
   });
 
   // Keep the process running
@@ -119,9 +120,9 @@ async function main() {
 
     // Remove all inputs and outputs
     core.removeInput("twitter_mentions");
-    for (const account of accountsToMonitor) {
-      core.removeInput(`twitter_timeline_${account}`);
-    }
+    // for (const account of accountsToMonitor) {
+    //   core.removeInput(`twitter_timeline_${account}`);
+    // }
     core.removeOutput("twitter_reply");
 
     console.log(chalk.green("✅ Shutdown complete"));
