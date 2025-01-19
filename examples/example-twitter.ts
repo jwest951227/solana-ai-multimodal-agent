@@ -52,6 +52,13 @@ async function main() {
     LogLevel.DEBUG
   );
 
+  // Initialize consciousness
+  const consciousness = new Consciousness(llmClient, roomManager, {
+    intervalMs: 300000, // Think every 5 minutes
+    minConfidence: 0.7,
+    logLevel: LogLevel.DEBUG,
+  });
+
   // Register Twitter inputs
   core.registerInput({
     name: "twitter_mentions",
@@ -70,55 +77,13 @@ async function main() {
     interval: 60000,
   });
 
-  //   // Monitor specific Twitter accounts
-  //   const accountsToMonitor = ["elonmusk", "sama", "naval"];
-
-  //   for (const account of accountsToMonitor) {
-  //     core.registerInput({
-  //       name: `twitter_timeline_${account}`,
-  //       handler: async () => {
-  //         console.log(chalk.blue(`📱 Checking ${account}'s timeline...`));
-  //         return twitter.createTimelineInput(account, 300000).handler();
-  //       },
-  //       response: {
-  //         type: "string",
-  //         content: "string",
-  //         metadata: "object",
-  //       },
-  //       interval: 300000, // Check timelines every 5 minutes
-  //     });
-  //   }
-
-  // Initialize consciousness
-  const consciousness = new Consciousness(llmClient, roomManager, {
-    intervalMs: 300000, // Think every 5 minutes
-    minConfidence: 0.7,
-    logLevel: LogLevel.DEBUG,
-  });
-
   // Register consciousness input
   core.registerInput({
     name: "consciousness_thoughts",
     handler: async () => {
       console.log(chalk.blue("🧠 Generating thoughts..."));
       const thought = await consciousness.start();
-
-      // Only return thought if it's not an error and has sufficient confidence
-      if (thought.type !== "error" && thought.type !== "low_confidence") {
-        // If it's a social_share type thought, format it for Twitter
-        if (thought.metadata?.type === "social_share") {
-          return {
-            type: "thought",
-            content: thought.content,
-            metadata: {
-              ...thought.metadata,
-              suggestedPlatform: "twitter",
-              thoughtType: "social_share",
-            },
-          };
-        }
-      }
-      return null;
+      return thought;
     },
     response: {
       type: "string",

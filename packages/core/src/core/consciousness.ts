@@ -184,12 +184,8 @@ Focus on:
   }
 
   private async think(): Promise<Thought> {
-    console.log("thinking");
     try {
-      console.log("generating thought");
       const thought = await this.generateThought();
-
-      console.log("thought", thought);
 
       if (thought.confidence >= (this.config.minConfidence || 0.7)) {
         return {
