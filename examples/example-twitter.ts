@@ -36,7 +36,7 @@ async function main() {
   // Initialize core
   const core = new Core(roomManager, vectorDb, processor, {
     logging: {
-      level: LogLevel.DEBUG,
+      level: LogLevel.ERROR,
       enableColors: true,
       enableTimestamp: true,
     },
@@ -56,7 +56,7 @@ async function main() {
   const consciousness = new Consciousness(llmClient, roomManager, {
     intervalMs: 300000, // Think every 5 minutes
     minConfidence: 0.7,
-    logLevel: LogLevel.DEBUG,
+    logLevel: LogLevel.ERROR,
   });
 
   // Register Twitter inputs

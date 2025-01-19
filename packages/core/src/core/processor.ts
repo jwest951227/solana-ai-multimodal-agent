@@ -62,6 +62,16 @@ function hasRoomSupport(vectorDb: VectorDB): vectorDb is VectorDBWithRooms {
   return "storeInRoom" in vectorDb && "findSimilarInRoom" in vectorDb;
 }
 
+function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36); // Convert to base36 for shorter strings
+}
+
 export class Processor {
   private logger: Logger;
   private availableOutputs: Map<string, Output> = new Map();
@@ -91,7 +101,14 @@ export class Processor {
 
     // Check if this content was already processed
     const contentId = this.generateContentId(content);
+
+    console.log("contentId", contentId);
     const alreadyProcessed = await this.hasProcessedContent(contentId, room);
+
+    this.logger.info("Processor.process", "Already processed", {
+      contentId,
+      alreadyProcessed,
+    });
 
     if (alreadyProcessed) {
       return {
@@ -120,6 +137,11 @@ export class Processor {
       enrichedContent,
       contentClassification
     );
+
+    this.logger.info("Processor.process", "Suggested outputs", {
+      contentId,
+      suggestedOutputs,
+    });
 
     // Store that we've processed this content
     await this.markContentAsProcessed(contentId, room);
@@ -437,47 +459,88 @@ Return only valid JSON, no other text.`;
 
   // Helper method to generate a consistent ID for content
   private generateContentId(content: any): string {
-    if (typeof content === "string") {
-      return content;
-    }
+    try {
+      // For strings, look for ID pattern first, then hash
+      if (typeof content === "string") {
+        return `content_${hashString(content)}`;
+      }
 
-    // If content has an ID field, use that
-    if (content.id) {
-      return content.id.toString();
-    }
-
-    // For arrays, map through and get IDs
-    if (Array.isArray(content)) {
-      return content
-        .map((item) => {
-          // Look for any kind of ID in metadata
-          if (item.metadata?.id) return item.metadata.id;
-          // Look for any ID field at root level
+      // For arrays, try to find IDs first
+      if (Array.isArray(content)) {
+        const ids = content.map((item) => {
+          // Try to find an explicit ID first
           if (item.id) return item.id;
-          // Look for common ID patterns in metadata
-          const metadataIds = item.metadata
-            ? Object.entries(item.metadata).find(([key]) =>
-                key.toLowerCase().includes("id")
-              )
-            : null;
-          if (metadataIds) return metadataIds[1];
-          // Fallback to content hash
-          return JSON.stringify(item);
-        })
-        .join("_");
-    }
+          if (item.metadata?.id) return item.metadata.id;
 
-    // If content has metadata with an ID
-    if (content.metadata) {
-      // Look for any ID field in metadata
-      const metadataIds = Object.entries(content.metadata).find(([key]) =>
-        key.toLowerCase().includes("id")
+          // Look for common ID patterns
+          for (const [key, value] of Object.entries(item.metadata || {})) {
+            if (key.toLowerCase().endsWith("id") && value) {
+              return value;
+            }
+          }
+
+          // If no ID found, hash the content
+          const relevantData = {
+            content: item.content || item,
+            type: item.type,
+          };
+          return hashString(JSON.stringify(relevantData));
+        });
+
+        return `array_${ids.join("_")}`;
+      }
+
+      // For single objects, try to find an ID first
+      if (content.id) {
+        return `obj_${content.id}`;
+      }
+
+      // Special handling for consciousness-generated content
+      if (
+        content.type === "internal_thought" ||
+        content.source === "consciousness"
+      ) {
+        const thoughtData = {
+          content: content.content,
+          timestamp: content.timestamp,
+        };
+        return `thought_${hashString(JSON.stringify(thoughtData))}`;
+      }
+
+      if (content.metadata?.id) {
+        return `obj_${content.metadata.id}`;
+      }
+
+      // Look for common ID patterns in metadata
+      if (content.metadata) {
+        for (const [key, value] of Object.entries(content.metadata)) {
+          if (key.toLowerCase().endsWith("id") && value) {
+            return `obj_${value}`;
+          }
+        }
+      }
+
+      // If no ID found, fall back to hashing relevant content
+      const relevantData = {
+        content: content.content || content,
+        type: content.type,
+        // Include source if available, but exclude room IDs
+        ...(content.source &&
+          content.source !== "consciousness" && { source: content.source }),
+      };
+      return `obj_${hashString(JSON.stringify(relevantData))}`;
+    } catch (error) {
+      this.logger.error(
+        "Processor.generateContentId",
+        "Error generating content ID",
+        {
+          error,
+          content:
+            typeof content === "object" ? JSON.stringify(content) : content,
+        }
       );
-      if (metadataIds) return metadataIds[1]?.toString() || "";
+      return `fallback_${Date.now()}`;
     }
-
-    // Fallback to stringifying the content
-    return JSON.stringify(content);
   }
 
   // Check if we've already processed this content
