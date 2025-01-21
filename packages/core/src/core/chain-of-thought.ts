@@ -70,6 +70,9 @@ export class ChainOfThought extends EventEmitter {
     } = {}
   ) {
     super();
+    // Set max listeners to prevent memory leaks
+    this.setMaxListeners(50);
+
     this.stepManager = new StepManager();
     this.context = initialContext ?? {
       worldState: "",
@@ -79,6 +82,11 @@ export class ChainOfThought extends EventEmitter {
       level: config.logLevel ?? LogLevel.ERROR,
       enableColors: true,
       enableTimestamp: true,
+    });
+
+    // Forward LLM client events
+    this.llmClient.on("trace:tokens", (data) => {
+      this.emit("trace:tokens", data);
     });
 
     this.contextLogPath = path.join(process.cwd(), "logs", "context.log");

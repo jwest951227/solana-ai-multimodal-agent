@@ -9,7 +9,7 @@ import { env } from "../packages/core/src/core/env";
 
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
-import { ETERNUM_CONTEXT } from "./eternum-context";
+import { ETERNUM_CONTEXT, PROVIDER_GUIDE } from "./eternum-context";
 import * as readline from "readline";
 
 import chalk from "chalk";
@@ -49,20 +49,6 @@ function printGoalStatus(status: GoalStatus): string {
   return colors[status] || status;
 }
 
-// This is a simple function to fetch the context from a remote source
-async function fetchContext() {
-  try {
-    const response = await fetch(
-      "https://raw.githubusercontent.com/daydreamsai/sleeves/main/sleeves/eternum.json"
-    );
-    const data = await response.json();
-    return data.context;
-  } catch (error) {
-    console.error(chalk.red("Failed to fetch context:"), error);
-    throw error;
-  }
-}
-
 async function main() {
   // Initialize LLM client
   const llmClient = new LLMClient({
@@ -80,6 +66,15 @@ async function main() {
     content: ETERNUM_CONTEXT,
     category: "rules",
     tags: ["game-mechanics", "rules"],
+    lastUpdated: new Date(),
+  });
+
+  // Load provider guide
+  await memory.storeDocument({
+    title: "Provider Guide",
+    content: PROVIDER_GUIDE,
+    category: "rules",
+    tags: ["provider-guide"],
     lastUpdated: new Date(),
   });
 

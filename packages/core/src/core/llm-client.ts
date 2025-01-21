@@ -16,6 +16,8 @@ export class LLMClient extends EventEmitter {
 
   constructor(config: LLMClientConfig) {
     super();
+    this.setMaxListeners(50);
+
     this.config = {
       provider: config.provider,
       model: config.model || this.getDefaultModel(),

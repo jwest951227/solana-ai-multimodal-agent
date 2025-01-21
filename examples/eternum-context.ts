@@ -669,7 +669,4 @@ export const PROVIDER_GUIDE = `
     </CREATE_BUILDING>
   </FUNCTIONS>
 </PROVIDER_GUIDE>
-
 `;
-
-console.log(JSON.stringify(ETERNUM_CONTEXT));
