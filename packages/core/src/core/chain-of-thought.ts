@@ -1592,6 +1592,8 @@ ${actionExamplesText}
         // Remove markdown code block formatting if present
         responseText = responseText.replace(/```json\n?|\n?```/g, "");
 
+        console.log("responseText", responseText);
+
         let parsed: T;
         try {
           parsed = JSON.parse(responseText);
