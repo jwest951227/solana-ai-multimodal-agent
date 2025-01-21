@@ -5,9 +5,8 @@ import type {
   CoTAction,
   Goal,
   HorizonType,
-  LLMStructuredResponse,
 } from "../types";
-import { queryValidator } from "./validation";
+
 import { Logger } from "./logger";
 import { EventEmitter } from "events";
 import { GoalManager } from "./goal-manager";
@@ -70,7 +69,7 @@ export class ChainOfThought extends EventEmitter {
     } = {}
   ) {
     super();
-    // Set max listeners to prevent memory leaks
+
     this.setMaxListeners(50);
 
     this.stepManager = new StepManager();

@@ -122,9 +122,9 @@ async function main() {
     }
   });
 
-  llmClient.on("trace:tokens", ({ input, output }) => {
-    console.log("\n💡 Tokens used:", { input, output });
-  });
+  // llmClient.on("trace:tokens", ({ input, output }) => {
+  //   console.log("\n💡 Tokens used:", { input, output });
+  // });
 
   dreams.on("action:start", (action) => {
     console.log("\n🎬 Starting action:", {
