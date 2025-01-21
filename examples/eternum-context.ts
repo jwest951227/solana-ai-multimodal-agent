@@ -428,10 +428,14 @@ Remember to replace placeholders like <realm_id>, <entity_id>, <x>, <y>, and <mo
 Now, please wait for a user query about the Eternum game, and respond according to the steps outlined above.
 
 </query_guide>
+`;
+
+// API DOCs etc
+export const PROVIDER_GUIDE = `
 
 <PROVIDER_GUIDE>
 
-    Use these to call functions.
+    Use these to call functions with graphql
 
 
   <IMPORTANT_RULES>
@@ -663,6 +667,8 @@ Now, please wait for a user query about the Eternum game, and respond according 
       </EXAMPLE>
     </CREATE_BUILDING>
   </FUNCTIONS>
-</PROVIDER_GUIDE>`;
+</PROVIDER_GUIDE>
+
+`;
 
 console.log(JSON.stringify(ETERNUM_CONTEXT));

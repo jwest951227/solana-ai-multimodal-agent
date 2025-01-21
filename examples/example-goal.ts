@@ -11,7 +11,7 @@ import { LLMClient } from "../packages/core/src/core/llm-client";
 import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
 import { ETERNUM_CONTEXT } from "./eternum-context";
 import * as readline from "readline";
-import { type GoalStatus } from "../packages/core/src/core/goal-manager";
+
 import chalk from "chalk";
 import { starknetTransactionAction } from "../packages/core/src/core/actions/starknet-transaction";
 import { graphqlAction } from "../packages/core/src/core/actions/graphql";
@@ -20,6 +20,8 @@ import {
   starknetTransactionSchema,
 } from "../packages/core/src/core/validation";
 import type { JSONSchemaType } from "ajv";
+import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
+import { GoalStatus } from "../packages/core/src/types";
 
 async function getCliInput(prompt: string): Promise<string> {
   const rl = readline.createInterface({
@@ -68,10 +70,23 @@ async function main() {
     apiKey: env.ANTHROPIC_API_KEY,
   });
 
+  // Fetch context
   const context = await fetchContext();
 
-  const dreams = new ChainOfThought(llmClient, {
-    worldState: context,
+  // Initialize memory
+  const memory = new ChromaVectorDB("agent_memory");
+
+  // Load initial context
+  await memory.storeDocument({
+    title: "Game Rules",
+    content: ETERNUM_CONTEXT,
+    category: "rules",
+    tags: ["game-mechanics", "rules"],
+    lastUpdated: new Date(),
+  });
+
+  const dreams = new ChainOfThought(llmClient, memory, {
+    worldState: ETERNUM_CONTEXT,
   });
 
   // Register actions
