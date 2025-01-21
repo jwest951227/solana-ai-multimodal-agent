@@ -184,37 +184,19 @@ export class ChainOfThought extends EventEmitter {
       </goal_planning_rules>
     `;
 
+    const goalSchema = z.object({
+      description: z.string(),
+      success_criteria: z.array(z.string()),
+      dependencies: z.array(z.string()),
+      priority: z.number().min(1).max(10),
+      required_resources: z.array(z.string()),
+      estimated_difficulty: z.number().min(1).max(10),
+    });
+
     const goalPlanningSchema = z.object({
-      long_term: z.array(
-        z.object({
-          description: z.string(),
-          success_criteria: z.array(z.string()),
-          dependencies: z.array(z.string()),
-          priority: z.number().min(1).max(10),
-          required_resources: z.array(z.string()),
-          estimated_difficulty: z.number().min(1).max(10),
-        })
-      ),
-      medium_term: z.array(
-        z.object({
-          description: z.string(),
-          success_criteria: z.array(z.string()),
-          dependencies: z.array(z.string()),
-          priority: z.number().min(1).max(10),
-          required_resources: z.array(z.string()),
-          estimated_difficulty: z.number().min(1).max(10),
-        })
-      ),
-      short_term: z.array(
-        z.object({
-          description: z.string(),
-          success_criteria: z.array(z.string()),
-          dependencies: z.array(z.string()),
-          priority: z.number().min(1).max(10),
-          required_resources: z.array(z.string()),
-          estimated_difficulty: z.number().min(1).max(10),
-        })
-      ),
+      long_term: z.array(goalSchema),
+      medium_term: z.array(goalSchema),
+      short_term: z.array(goalSchema),
     });
 
     try {
