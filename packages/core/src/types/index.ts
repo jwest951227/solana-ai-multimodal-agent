@@ -188,6 +188,45 @@ export interface Goal {
   }>;
 }
 
+export interface LLMResponse {
+  text: string;
+  model: string;
+  usage?: {
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+  };
+  metadata?: Record<string, unknown>;
+}
+
+export interface LLMClientConfig {
+  provider: "anthropic";
+  model?: string;
+  maxRetries?: number;
+  timeout?: number;
+  temperature?: number;
+  maxTokens?: number;
+  apiKey?: string;
+  baseDelay?: number;
+  maxDelay?: number;
+}
+
+export interface AnalysisOptions {
+  system?: string;
+  role?: string;
+  temperature?: number;
+  maxTokens?: number;
+  formatResponse?: boolean;
+}
+
+export interface StructuredAnalysis {
+  summary: string;
+  reasoning: string;
+  conclusion: string;
+  confidenceLevel: number;
+  caveats: string[];
+}
+
 // Add type definitions for the events
 export interface ChainOfThoughtEvents {
   step: (step: Step) => void;
@@ -210,6 +249,7 @@ export interface ChainOfThoughtEvents {
     experiences: EpisodicMemory[];
   }) => void;
   "memory:knowledge_retrieved": (data: { documents: Documentation[] }) => void;
+  "trace:tokens": (data: { input: number; output: number }) => void;
 }
 
 // Add type safety to event emitter

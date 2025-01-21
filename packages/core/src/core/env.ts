@@ -10,7 +10,7 @@ const envSchema = z.object({
   STARKNET_RPC_URL: z.string(),
   STARKNET_ADDRESS: z.string(),
   STARKNET_PRIVATE_KEY: z.string(),
-
+  OPENROUTER_API_KEY: z.string(),
   GRAPHQL_URL: z.string(),
 });
 

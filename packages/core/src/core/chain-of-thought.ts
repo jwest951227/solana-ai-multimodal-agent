@@ -1294,40 +1294,31 @@ ${actionExamplesText}
     importance?: number
   ): Promise<void> {
     try {
-      // Get semantic summary of the outcome
       const formattedOutcome = await this.formatActionOutcome(action, result);
-
-      // Calculate importance if not provided
       const calculatedImportance =
         importance ?? this.calculateImportance(formattedOutcome);
+      const actionWithResult = `${action} RESULT: ${result}`;
+      const emotions = this.determineEmotions(
+        actionWithResult,
+        formattedOutcome,
+        calculatedImportance
+      );
 
-      // Store the experience
-      await this.memory.storeEpisode({
+      const experience = {
         timestamp: new Date(),
-        action: action + " RESULT: " + result,
+        action: actionWithResult,
         outcome: formattedOutcome,
         context: this.context,
         importance: calculatedImportance,
-        emotions: this.determineEmotions(
-          action + " RESULT: " + result,
-          formattedOutcome,
-          calculatedImportance
-        ),
-      });
+        emotions,
+      };
+
+      await this.memory.storeEpisode(experience);
 
       this.emit("memory:experience_stored", {
         experience: {
+          ...experience,
           id: crypto.randomUUID(),
-          action: action + " RESULT: " + result,
-          outcome: formattedOutcome,
-          timestamp: new Date(),
-          context: this.context,
-          importance: calculatedImportance,
-          emotions: this.determineEmotions(
-            action + " RESULT: " + result,
-            formattedOutcome,
-            calculatedImportance
-          ),
         },
       });
     } catch (error) {
@@ -1342,27 +1333,26 @@ ${actionExamplesText}
     result: string | Record<string, any>,
     importance: number
   ): string[] {
-    const emotions: string[] = [];
     const resultStr =
       typeof result === "string" ? result : JSON.stringify(result);
+    const resultLower = resultStr.toLowerCase();
+    const emotions: string[] = [];
 
     // Success/failure emotions
-    if (
-      resultStr.toLowerCase().includes("error") ||
-      resultStr.toLowerCase().includes("failed")
-    ) {
+    const isFailure =
+      resultLower.includes("error") || resultLower.includes("failed");
+    const isHighImportance = importance > 0.7;
+
+    if (isFailure) {
       emotions.push("frustrated");
-      if (importance > 0.7) emotions.push("concerned");
+      if (isHighImportance) emotions.push("concerned");
     } else {
       emotions.push("satisfied");
-      if (importance > 0.7) emotions.push("excited");
+      if (isHighImportance) emotions.push("excited");
     }
 
     // Learning emotions
-    if (
-      resultStr.toLowerCase().includes("learned") ||
-      resultStr.toLowerCase().includes("discovered")
-    ) {
+    if (resultLower.includes("learned") || resultLower.includes("discovered")) {
       emotions.push("curious");
     }
 
@@ -1437,24 +1427,18 @@ ${actionExamplesText}
     tags: string[]
   ): Promise<void> {
     try {
-      await this.memory.storeDocument({
+      const document = {
+        id: crypto.randomUUID(),
         title,
         content,
         category,
         tags,
         lastUpdated: new Date(),
-      });
+      };
 
-      this.emit("memory:knowledge_stored", {
-        document: {
-          id: crypto.randomUUID(),
-          title,
-          content,
-          category,
-          tags,
-          lastUpdated: new Date(),
-        },
-      });
+      await this.memory.storeDocument(document);
+
+      this.emit("memory:knowledge_stored", { document });
     } catch (error) {
       this.logger.error("storeKnowledge", "Failed to store knowledge", {
         error,
@@ -1576,7 +1560,6 @@ ${actionExamplesText}
     maxRetries = 3,
     onRetry,
   }: LLMValidationOptions<T>): Promise<T> {
-    // Convert Zod schema to JSONSchema
     const jsonSchema = zodToJsonSchema(schema, "mySchema");
     const validate = ajv.compile(jsonSchema as JSONSchemaType<T>);
     let attempts = 0;
@@ -1585,8 +1568,9 @@ ${actionExamplesText}
       ${prompt}
 
       <response_structure>
+      Return a JSON object matching this schema. Do not include any markdown formatting.
+
       ${JSON.stringify(jsonSchema, null, 2)}
-      Only return the JSON object, do not include any other text, backticks, or comments.
       </response_structure>
     `;
 
@@ -1596,17 +1580,20 @@ ${actionExamplesText}
           system: systemPrompt,
         });
 
+        let responseText = response.toString();
+
+        // Remove markdown code block formatting if present
+        responseText = responseText.replace(/```json\n?|\n?```/g, "");
+
         let parsed: T;
         try {
-          parsed = JSON.parse(response.toString());
-
-          console.log("parsed", parsed);
+          parsed = JSON.parse(responseText);
         } catch (parseError) {
           this.logger.error(
             "getValidatedLLMResponse",
             "Failed to parse LLM response as JSON",
             {
-              response,
+              response: responseText,
               error: parseError,
             }
           );
@@ -1615,7 +1602,6 @@ ${actionExamplesText}
           continue;
         }
 
-        // Validate the parsed response
         if (!validate(parsed)) {
           this.logger.error(
             "getValidatedLLMResponse",
@@ -1653,7 +1639,6 @@ ${actionExamplesText}
       }
     }
 
-    // TypeScript requires this even though it's unreachable
     throw new Error("Maximum retries exceeded");
   }
 }

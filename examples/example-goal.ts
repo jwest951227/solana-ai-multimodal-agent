@@ -68,10 +68,8 @@ async function main() {
   const llmClient = new LLMClient({
     provider: "anthropic",
     apiKey: env.ANTHROPIC_API_KEY,
+    model: "deepseek/deepseek-r1",
   });
-
-  // Fetch context
-  const context = await fetchContext();
 
   // Initialize memory
   const memory = new ChromaVectorDB("agent_memory");
@@ -127,6 +125,10 @@ async function main() {
         tags: step.tags,
       });
     }
+  });
+
+  llmClient.on("trace:tokens", ({ input, output }) => {
+    console.log("\n💡 Tokens used:", { input, output });
   });
 
   dreams.on("action:start", (action) => {
