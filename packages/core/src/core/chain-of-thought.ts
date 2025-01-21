@@ -165,9 +165,10 @@ export class ChainOfThought extends EventEmitter {
       2. Each goal must have clear success criteria
       3. Identify dependencies between goals
       4. Prioritize goals (1-10) based on urgency and impact
-      5. Ensure goals are achievable given the current context
-      6. Consider past experiences when setting goals
-      7. Use available game state information to inform strategy
+      5. short term goals should be given a priority of 10
+      6. Ensure goals are achievable given the current context
+      7. Consider past experiences when setting goals
+      8. Use available game state information to inform strategy
       
       Return a JSON structure with three arrays:
       - long_term: Strategic goals that might take multiple sessions
@@ -230,6 +231,7 @@ export class ChainOfThought extends EventEmitter {
           this.emit("goal:created", {
             id: newGoal.id,
             description: newGoal.description,
+            priority: newGoal.priority,
           });
         }
       }
@@ -273,6 +275,7 @@ export class ChainOfThought extends EventEmitter {
     reason: string;
     missing_requirements: string[];
   }> {
+    console.log("canExecuteGoal: =================================", goal);
     const [relevantDocs, relevantExperiences, blackboardState] =
       await Promise.all([
         this.memory.findSimilarDocuments(goal.description, 5),
@@ -640,10 +643,18 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     try {
-      const response = await this.llmClient.analyze(prompt, {
-        system:
+      const response = await this.getValidatedLLMResponse({
+        prompt,
+        systemPrompt:
           "You are a goal validation system that carefully checks success criteria against the current context.",
+        schema: z.object({
+          success: z.boolean(),
+          reason: z.string(),
+          outcomeScore: z.number(),
+        }),
       });
+
+      console.log("validateGoalSuccess response: =================================", response);
 
       const result = JSON.parse(response.toString());
 
@@ -1569,10 +1580,13 @@ ${actionExamplesText}
           system: systemPrompt,
         });
 
+        
         let responseText = response.toString();
-
+        
         // Remove markdown code block formatting if present
         responseText = responseText.replace(/```json\n?|\n?```/g, "");
+
+        console.log("responseText: =================================", responseText);
 
         let parsed: T;
         try {
