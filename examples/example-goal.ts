@@ -52,9 +52,7 @@ function printGoalStatus(status: GoalStatus): string {
 async function main() {
   // Initialize LLM client
   const llmClient = new LLMClient({
-    provider: "anthropic",
-    apiKey: env.ANTHROPIC_API_KEY,
-    model: "deepseek/deepseek-r1",
+    model: "deepseek/deepseek-r1", // clutch model!
   });
 
   // Initialize memory

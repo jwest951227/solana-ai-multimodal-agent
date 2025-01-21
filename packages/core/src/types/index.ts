@@ -200,13 +200,11 @@ export interface LLMResponse {
 }
 
 export interface LLMClientConfig {
-  provider: "anthropic";
   model?: string;
   maxRetries?: number;
   timeout?: number;
   temperature?: number;
   maxTokens?: number;
-  apiKey?: string;
   baseDelay?: number;
   maxDelay?: number;
 }

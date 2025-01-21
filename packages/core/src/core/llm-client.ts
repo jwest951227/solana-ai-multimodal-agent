@@ -1,6 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { setTimeout } from "timers/promises";
-import { env } from "./env";
 import { EventEmitter } from "events";
 import type {
   AnalysisOptions,
@@ -19,13 +17,11 @@ export class LLMClient extends EventEmitter {
     this.setMaxListeners(50);
 
     this.config = {
-      provider: config.provider,
       model: config.model || this.getDefaultModel(),
       maxRetries: config.maxRetries || 3,
       timeout: config.timeout || 30000,
       temperature: config.temperature || 0.3,
       maxTokens: config.maxTokens || 1000,
-      apiKey: config.apiKey || this.getApiKeyFromEnv(config.provider),
       baseDelay: config.baseDelay || 1000,
       maxDelay: config.maxDelay || 10000,
     };
@@ -34,23 +30,6 @@ export class LLMClient extends EventEmitter {
   }
 
   private initializeClient(): void {}
-
-  // obfuscate the API key when logging
-  toJSON() {
-    let maskedApiKey = this.config.apiKey.slice(0, 7) + "*".repeat(3);
-
-    return {
-      ...this,
-      config: {
-        ...this.config,
-        apiKey: maskedApiKey,
-      },
-    };
-  }
-
-  [Symbol.for("nodejs.util.inspect.custom")]() {
-    return this.toJSON();
-  }
 
   public async complete(prompt: string): Promise<LLMResponse> {
     let lastError: Error | null = null;
@@ -126,14 +105,6 @@ export class LLMClient extends EventEmitter {
     return "anthropic/claude-3.5-sonnet:beta";
   }
 
-  private getApiKeyFromEnv(provider: string): string {
-    if (provider === "anthropic") {
-      return env.ANTHROPIC_API_KEY;
-    }
-
-    throw new Error(`Unsupported provider: ${provider}`);
-  }
-
   private shouldRetry(error: Error, attempt: number): boolean {
     if (attempt >= this.config.maxRetries) return false;
 
@@ -154,7 +125,7 @@ export class LLMClient extends EventEmitter {
 
   private enhanceError(error: Error): Error {
     const enhancedError = new Error(
-      `LLM Error (${this.config.provider}): ${error.message}`
+      `LLM Error (${this.config.model}): ${error.message}`
     );
     enhancedError.cause = error;
     return enhancedError;
@@ -165,14 +136,13 @@ export class LLMClient extends EventEmitter {
     options: AnalysisOptions = {}
   ): Promise<string | StructuredAnalysis> {
     const {
-      system,
       temperature = this.config.temperature,
       maxTokens = this.config.maxTokens,
       formatResponse = false,
     } = options;
 
     const response = await generateText({
-      model: openrouter("deepseek/deepseek-r1"),
+      model: openrouter(this.config.model),
       temperature,
       messages: [
         {

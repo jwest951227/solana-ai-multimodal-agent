@@ -33,8 +33,7 @@ async function getCliInput(prompt: string): Promise<string> {
 async function main() {
   // Initialize LLM client
   const llmClient = new LLMClient({
-    provider: "anthropic",
-    apiKey: env.ANTHROPIC_API_KEY,
+    model: "deepseek/deepseek-r1", // clutch model!
   });
 
   const memory = new ChromaVectorDB("agent_memory");

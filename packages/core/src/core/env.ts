@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const envSchema = z.object({
-  ANTHROPIC_API_KEY: z.string(),
   TWITTER_USERNAME: z.string(),
   TWITTER_PASSWORD: z.string(),
   TWITTER_EMAIL: z.string(),
