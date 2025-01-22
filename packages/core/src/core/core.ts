@@ -7,6 +7,7 @@ import { RoomManager } from "./room-manager";
 import type { VectorDB } from "./vector-db";
 import { LogLevel } from "../types";
 import type { Processor, SuggestedOutput } from "./processor";
+import type { z } from "zod";
 
 /**
  * Defines a scheduled or one-time task to be processed as 'input'.
@@ -14,7 +15,7 @@ import type { Processor, SuggestedOutput } from "./processor";
 export interface Input<T = unknown> {
   name: string;
   handler: (...args: unknown[]) => Promise<T>;
-  response: T;
+  response: z.ZodType<T>;
   interval?: number;
 }
 
@@ -24,8 +25,7 @@ export interface Input<T = unknown> {
 export interface Output<T = unknown> {
   name: string;
   handler: (data: T) => Promise<unknown>;
-  response: T;
-  schema: JSONSchemaType<T>;
+  schema: z.ZodType<T>;
 }
 
 export interface CoreConfig {
@@ -65,7 +65,7 @@ export class Core {
     this.ajv = new Ajv();
 
     // Start the input processing on an interval (every 1 second by default).
-    this.startProcessingInputs(1000);
+    this.startProcessingInputs();
   }
 
   /**
@@ -114,24 +114,42 @@ export class Core {
   /**
    * Starts periodically processing all registered inputs.
    */
-  private startProcessingInputs(pollIntervalMs: number): void {
+  private startProcessingInputs(): void {
     if (this.inputProcessingIntervalId) {
       clearInterval(this.inputProcessingIntervalId);
     }
 
-    this.inputProcessingIntervalId = setInterval(() => {
+    // First run immediately
+    const processInputs = async () => {
       const tasks = [...this.inputs.entries()].map(([name, input]) =>
         this.handleInput(name, input)
       );
-      // We don't await here to avoid blocking if tasks take a long time.
-      Promise.all(tasks).catch((err) => {
+      try {
+        await Promise.all(tasks);
+      } catch (err) {
         this.logger.error(
           "Core.startProcessingInputs",
           "Error in concurrent input processing",
           err
         );
-      });
-    }, pollIntervalMs) as unknown as NodeJS.Timeout;
+      }
+    };
+
+    const minInterval = Math.min(
+      5000,
+      ...[...this.inputs.values()]
+        .map((input) => input.interval || 5000)
+        .filter((interval) => interval > 0)
+    );
+
+    // Then set up interval
+    this.inputProcessingIntervalId = setInterval(
+      processInputs,
+      minInterval
+    ) as unknown as NodeJS.Timeout;
+
+    // Run first batch immediately
+    processInputs();
   }
 
   /**
@@ -153,42 +171,58 @@ export class Core {
   ): Promise<void> {
     const now = Date.now();
 
-    if (
-      input.interval &&
-      input.lastRun &&
-      now - input.lastRun < input.interval
-    ) {
-      return;
+    // Skip if the input-specific interval hasn't elapsed
+    if (input.interval && input.lastRun) {
+      const elapsed = now - input.lastRun;
+      if (elapsed < input.interval) {
+        this.logger.debug(
+          "Core.handleInput",
+          "Skipping input due to interval",
+          {
+            name,
+            elapsed,
+            interval: input.interval,
+          }
+        );
+        return;
+      }
     }
 
     try {
       this.logger.debug("Core.handleInput", "Processing input", { name });
       const result = await input.handler();
 
-      // Update last run
+      // Update last run timestamp
       input.lastRun = now;
       this.inputs.set(name, input);
 
-      if (result) {
+      // Only process if result exists and is not null
+      if (result != null) {
         const room = await this.roomManager.ensureRoom(name, "core");
-        const processed = await this.processor.process(result, room);
 
-        // Only proceed if content hasn't been processed before
-        if (!processed.alreadyProcessed) {
-          // Store input result in memory
-          await this.roomManager.addMemory(
-            room.id,
-            JSON.stringify(processed.content),
-            {
-              source: name,
-              type: "input",
-              ...processed.metadata,
-              ...processed.enrichedContext,
-            }
-          );
+        // Handle array of results
+        const results = Array.isArray(result) ? result : [result];
 
-          // Handle any suggested outputs
-          await this.handleSuggestedOutputs(processed.suggestedOutputs);
+        for (const item of results) {
+          const processed = await this.processor.process(item, room);
+
+          // Only proceed if content hasn't been processed before
+          if (!processed.alreadyProcessed) {
+            // Store input result in memory
+            await this.roomManager.addMemory(
+              room.id,
+              JSON.stringify(processed.content),
+              {
+                source: name,
+                type: "input",
+                ...processed.metadata,
+                ...processed.enrichedContext,
+              }
+            );
+
+            // Handle any suggested outputs
+            await this.handleSuggestedOutputs(processed.suggestedOutputs);
+          }
         }
       }
     } catch (error) {
@@ -249,20 +283,6 @@ export class Core {
     const output = this.outputs.get(name);
     if (!output) {
       throw new Error(`No output registered with name: ${name}`);
-    }
-
-    // Validate against the output's schema
-    const validateFn = this.getValidatorForSchema(name, output.schema);
-    if (!validateFn(data)) {
-      this.logger.error("Core.executeOutput", "Schema validation failed", {
-        name,
-        data,
-        errors: validateFn.errors,
-        schema: output.schema,
-      });
-      throw new Error(
-        `Invalid data for output ${name}: ${JSON.stringify(validateFn.errors)}`
-      );
     }
 
     this.logger.debug("Core.executeOutput", "Executing output", {

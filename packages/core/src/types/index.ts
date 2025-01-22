@@ -1,5 +1,8 @@
+import type { z } from "zod";
 import type { Documentation } from "../core/vector-db";
 import type { EpisodicMemory } from "../core/vector-db";
+import type { LLMClient } from "../core/llm-client";
+import type { Logger } from "../core/logger";
 
 /**
  * Represents a single "step" in the Chain of Thought.
@@ -260,4 +263,22 @@ export declare interface ChainOfThought {
     event: K,
     ...args: Parameters<ChainOfThoughtEvents[K]>
   ): boolean;
+}
+
+export interface RefinedGoal {
+  description: string;
+  success_criteria: string[];
+  priority: number;
+  horizon: "short";
+  requirements: Record<string, any>;
+}
+
+export interface LLMValidationOptions<T> {
+  prompt: string;
+  systemPrompt: string;
+  schema: z.ZodSchema<T>;
+  maxRetries?: number;
+  onRetry?: (error: Error, attempt: number) => void;
+  llmClient: LLMClient;
+  logger: Logger;
 }

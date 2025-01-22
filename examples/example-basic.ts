@@ -1,5 +1,11 @@
-// This is a basic example of how to use the Daydreams package
-// It runs a simple agent that can execute tasks directly using the think method
+/**
+ * Basic example demonstrating the Daydreams package functionality.
+ * This example creates an interactive CLI agent that can:
+ * - Execute tasks using the ChainOfThought system
+ * - Interact with Starknet blockchain
+ * - Query data via GraphQL
+ * - Maintain conversation memory using ChromaDB
+ */
 
 import { env } from "../packages/core/src/core/env";
 import { LLMClient } from "../packages/core/src/core/llm-client";
@@ -16,6 +22,9 @@ import {
 import type { JSONSchemaType } from "ajv";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 
+/**
+ * Helper function to get user input from CLI
+ */
 async function getCliInput(prompt: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,
@@ -31,13 +40,15 @@ async function getCliInput(prompt: string): Promise<string> {
 }
 
 async function main() {
-  // Initialize LLM client
+  // Initialize core components
   const llmClient = new LLMClient({
-    model: "deepseek/deepseek-r1", // clutch model!
+    model: "deepseek/deepseek-r1", // High performance model
   });
 
   const memory = new ChromaVectorDB("agent_memory");
+  await memory.purge(); // Clear previous session data
 
+  // Load initial context documents
   await memory.storeDocument({
     title: "Game Rules",
     content: ETERNUM_CONTEXT,
@@ -54,12 +65,10 @@ async function main() {
     lastUpdated: new Date(),
   });
 
-  // Initialize ChainOfThought
+  // Initialize the main reasoning engine
   const dreams = new ChainOfThought(llmClient, memory, {
     worldState: ETERNUM_CONTEXT,
   });
-
-  // Load initial context
 
   // Register available actions
   dreams.registerAction(
@@ -89,7 +98,7 @@ async function main() {
     graphqlFetchSchema as JSONSchemaType<any>
   );
 
-  // Add basic event handlers
+  // Set up event logging
   dreams.on("think:start", ({ query }) => {
     console.log(chalk.blue("\n🧠 Thinking about:"), query);
   });
@@ -137,13 +146,14 @@ async function main() {
     }
   }
 
-  // Handle shutdown
+  // Graceful shutdown handler
   process.on("SIGINT", async () => {
     console.log(chalk.yellow("\nShutting down..."));
     process.exit(0);
   });
 }
 
+// Application entry point with error handling
 main().catch((error) => {
   console.error(chalk.red("Fatal error:"), error);
   process.exit(1);

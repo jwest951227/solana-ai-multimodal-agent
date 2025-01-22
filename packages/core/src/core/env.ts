@@ -11,6 +11,9 @@ const envSchema = z.object({
   STARKNET_PRIVATE_KEY: z.string(),
   OPENROUTER_API_KEY: z.string(),
   GRAPHQL_URL: z.string(),
+  DRY_RUN: z
+    .preprocess((val) => val === "1" || val === "true", z.boolean())
+    .default(true),
 });
 
 export const env = envSchema.parse(process.env);
