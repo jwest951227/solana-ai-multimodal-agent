@@ -170,11 +170,28 @@ export class ChromaVectorDB implements VectorDB {
       path: config.chromaUrl || "http://localhost:8000",
     });
 
-    // Use whichever embedding model you need
-    this.embedder = new OpenAIEmbeddingFunction({
-      openai_api_key: env.OPENAI_API_KEY,
-      openai_model: "text-embedding-3-small",
+    // Add debug logging for embedder initialization
+    this.logger.debug("ChromaVectorDB.constructor", "Initializing embedder", {
+      apiKey: env.OPENAI_API_KEY ? "present" : "missing",
+      model: "text-embedding-3-small",
     });
+
+    // Initialize embedder with explicit error handling
+    try {
+      this.embedder = new OpenAIEmbeddingFunction({
+        openai_api_key: env.OPENAI_API_KEY,
+        openai_model: "text-embedding-3-small", // Make sure we're using a valid model
+      });
+    } catch (error) {
+      this.logger.error(
+        "ChromaVectorDB.constructor",
+        "Failed to initialize embedder",
+        {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      );
+      throw error;
+    }
   }
 
   // ======================= COMMON COLLECTIONS =======================
@@ -350,14 +367,31 @@ export class ChromaVectorDB implements VectorDB {
     metadata: Record<string, any> = {}
   ): Promise<void> {
     try {
+      // Add detailed logging
+      this.logger.debug("ChromaVectorDB.storeInRoom", "Storing content", {
+        content,
+        contentType: typeof content,
+        contentLength: content?.length,
+        roomId,
+        metadata,
+      });
+
+      // Ensure content is a non-empty string
+      if (!content || typeof content !== "string") {
+        throw new Error(`Invalid content: ${typeof content}`);
+      }
+
       const collection = await this.getCollectionForRoom(roomId);
       const id = Room.createDeterministicMemoryId(roomId, content);
       const timestamp = new Date(metadata.timestamp || Date.now());
 
-      // Attempt to associate content with an existing or new cluster
-      const clusterInfo = await this.findOrCreateCluster(content, metadata);
+      this.logger.debug("ChromaVectorDB.storeInRoom", "Generated ID", {
+        id,
+        roomId,
+        timestamp: timestamp.toISOString(),
+      });
 
-      // Update the room's metadata so we can track "lastActive"
+      // Update the room's metadata
       await collection.modify({
         metadata: {
           ...collection.metadata,
@@ -373,24 +407,21 @@ export class ChromaVectorDB implements VectorDB {
           {
             ...metadata,
             roomId,
-            clusterId: clusterInfo.clusterId,
-            clusterConfidence: clusterInfo.confidence,
-            clusterTopics: clusterInfo.topics.join(","),
             timestamp: timestamp.toISOString(),
           },
         ],
       });
 
-      this.logger.debug("ChromaVectorDB.storeInRoom", "Stored content", {
+      this.logger.debug("ChromaVectorDB.storeInRoom", "Successfully stored", {
+        id,
         roomId,
         contentLength: content.length,
-        memoryId: id,
-        clusterId: clusterInfo.clusterId,
-        clusterConfidence: clusterInfo.confidence,
       });
     } catch (error) {
       this.logger.error("ChromaVectorDB.storeInRoom", "Storage failed", {
         error: error instanceof Error ? error.message : String(error),
+        content,
+        contentType: typeof content,
         roomId,
       });
       throw error;
@@ -408,56 +439,67 @@ export class ChromaVectorDB implements VectorDB {
     metadata?: Record<string, any>
   ): Promise<SearchResult[]> {
     try {
-      const collection = await this.getCollectionForRoom(roomId);
-      // Attempt to find or create a cluster for this piece of content
-      const clusterInfo = await this.findOrCreateCluster(
-        content,
-        metadata || {}
+      // Add detailed logging
+      this.logger.debug(
+        "ChromaVectorDB.findSimilarInRoom",
+        "Input content details",
+        {
+          content,
+          contentType: typeof content,
+          contentLength: content?.length,
+          roomId,
+          metadata,
+        }
       );
 
-      // First, try restricting the search to the matched cluster
-      const results = await collection.query({
-        queryTexts: [content],
-        nResults: limit * 2, // gather extra then slice
-        where: {
-          ...metadata,
-          clusterId: clusterInfo.clusterId,
-        },
-      });
-
-      if (!results.ids.length || !results.distances?.length) {
-        // No results in this cluster? Fallback to searching across entire collection
-        return this.findSimilarInRoomGlobal(content, roomId, limit, metadata);
+      // Ensure content is a non-empty string
+      if (!content || typeof content !== "string") {
+        this.logger.warn(
+          "ChromaVectorDB.findSimilarInRoom",
+          "Invalid content",
+          {
+            content,
+            contentType: typeof content,
+            roomId,
+          }
+        );
+        return [];
       }
 
-      // Format and sort results by similarity
-      const processed = results.ids[0].map((id: string, index: number) => {
-        const meta = results.metadatas?.[0]?.[index] || {};
-        const dist = results.distances?.[0]?.[index] || 0;
+      const collection = await this.getCollectionForRoom(roomId);
 
-        const timestampStr = meta.timestamp;
-        const timestamp =
-          timestampStr && isValidDateValue(timestampStr)
-            ? new Date(timestampStr)
-            : new Date();
+      this.logger.debug(
+        "ChromaVectorDB.findSimilarInRoom",
+        "Querying collection",
+        {
+          queryText: content,
+          roomId,
+          limit,
+          metadata,
+        }
+      );
 
-        return {
-          id,
-          content: results.documents[0][index] || "",
-          similarity: 1 - dist,
-          metadata: {
-            ...meta,
-            timestamp: timestamp.toISOString(),
-          },
-        };
+      const results = await collection.query({
+        queryTexts: [content],
+        nResults: limit,
+        where: metadata,
       });
 
-      return processed
-        .sort((a, b) => b.similarity - a.similarity)
-        .slice(0, limit);
+      if (!results.ids.length || !results.ids[0]) {
+        return [];
+      }
+
+      return results.ids[0].map((id: string, idx: number) => ({
+        id,
+        content: results.documents[0][idx] || "",
+        similarity: 1 - (results.distances?.[0]?.[idx] || 0),
+        metadata: results.metadatas?.[0]?.[idx] || undefined,
+      }));
     } catch (error) {
       this.logger.error("ChromaVectorDB.findSimilarInRoom", "Search failed", {
         error: error instanceof Error ? error.message : String(error),
+        content,
+        contentType: typeof content,
         roomId,
       });
       return [];

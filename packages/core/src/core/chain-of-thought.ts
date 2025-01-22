@@ -5,6 +5,7 @@ import type {
   CoTAction,
   Goal,
   HorizonType,
+  RefinedGoal,
 } from "../types";
 
 import { Logger } from "./logger";
@@ -16,36 +17,19 @@ import {
   calculateImportance,
   determineEmotions,
   generateUniqueId,
+  getValidatedLLMResponse,
   injectTags,
 } from "./utils";
 import { systemPromptAction } from "./actions/system-prompt";
 import Ajv from "ajv";
-import type { VectorDB, EpisodicMemory, Documentation } from "./vector-db";
+import type { VectorDB } from "./vector-db";
 
 import { zodToJsonSchema } from "zod-to-json-schema";
 
-// Todo: remove these when we bundle
-import * as fs from "fs";
 import type { AnySchema, JSONSchemaType } from "ajv";
 import { z } from "zod";
 
 const ajv = new Ajv();
-
-interface RefinedGoal {
-  description: string;
-  success_criteria: string[];
-  priority: number;
-  horizon: "short";
-  requirements: Record<string, any>;
-}
-
-interface LLMValidationOptions<T> {
-  prompt: string;
-  systemPrompt: string;
-  schema: z.ZodSchema<T>;
-  maxRetries?: number;
-  onRetry?: (error: Error, attempt: number) => void;
-}
 
 export class ChainOfThought extends EventEmitter {
   private stepManager: StepManager;
@@ -191,7 +175,7 @@ export class ChainOfThought extends EventEmitter {
     });
 
     try {
-      const goals = await this.getValidatedLLMResponse({
+      const goals = await getValidatedLLMResponse({
         prompt,
         systemPrompt:
           "You are a strategic planning system that creates hierarchical goal structures.",
@@ -202,6 +186,8 @@ export class ChainOfThought extends EventEmitter {
             error,
           });
         },
+        llmClient: this.llmClient,
+        logger: this.logger,
       });
 
       // Create goals in order: long-term first, then medium, then short
@@ -314,7 +300,7 @@ export class ChainOfThought extends EventEmitter {
         })
         .strict();
 
-      const response = await this.getValidatedLLMResponse<{
+      const response = await getValidatedLLMResponse<{
         possible: boolean;
         reason: string;
         missing_requirements: string[];
@@ -329,6 +315,8 @@ export class ChainOfThought extends EventEmitter {
             error,
           });
         },
+        llmClient: this.llmClient,
+        logger: this.logger,
       });
 
       return response;
@@ -405,7 +393,7 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     try {
-      const subGoals = await this.getValidatedLLMResponse<RefinedGoal[]>({
+      const subGoals = await getValidatedLLMResponse<RefinedGoal[]>({
         prompt,
         systemPrompt:
           "You are a goal refinement system that breaks down complex goals into actionable steps. Return only valid JSON array matching the schema.",
@@ -416,6 +404,8 @@ export class ChainOfThought extends EventEmitter {
             error,
           });
         },
+        llmClient: this.llmClient,
+        logger: this.logger,
       });
 
       // Add sub-goals to goal manager with parent reference
@@ -655,7 +645,7 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     try {
-      const response = await this.getValidatedLLMResponse({
+      const response = await getValidatedLLMResponse({
         prompt,
         systemPrompt:
           "You are a goal validation system that carefully checks success criteria against the current context.",
@@ -664,6 +654,8 @@ export class ChainOfThought extends EventEmitter {
           reason: z.string(),
           outcomeScore: z.number(),
         }),
+        llmClient: this.llmClient,
+        logger: this.logger,
       });
 
       console.log(
@@ -994,7 +986,7 @@ ${actionExamplesText}
       let isComplete = false;
 
       // Get initial plan and actions
-      const initialResponse = await this.getValidatedLLMResponse({
+      const initialResponse = await getValidatedLLMResponse({
         prompt: this.buildPrompt({ query: userQuery }),
         schema: z.object({
           plan: z.string().optional(),
@@ -1009,6 +1001,8 @@ ${actionExamplesText}
         systemPrompt:
           "You are a reasoning system that outputs structured JSON only.",
         maxRetries: 3,
+        llmClient: this.llmClient,
+        logger: this.logger,
       });
 
       // Initialize pending actions queue with initial actions
@@ -1056,7 +1050,7 @@ ${actionExamplesText}
             );
           }
 
-          const completion = await this.getValidatedLLMResponse({
+          const completion = await getValidatedLLMResponse({
             prompt: `${this.buildPrompt({ result })}
             ${JSON.stringify({
               query: userQuery,
@@ -1106,6 +1100,8 @@ ${actionExamplesText}
             systemPrompt:
               "You are a goal completion analyzer using Chain of Verification...",
             maxRetries: 3,
+            llmClient: this.llmClient,
+            logger: this.logger,
           });
 
           try {
@@ -1174,7 +1170,7 @@ ${actionExamplesText}
     const resultStr =
       typeof result === "string" ? result : JSON.stringify(result, null, 2);
 
-    const response = await this.getValidatedLLMResponse({
+    const response = await getValidatedLLMResponse({
       prompt: `
       # Action Result Summary
       Summarize this action result in a clear, concise way
@@ -1200,6 +1196,8 @@ ${actionExamplesText}
       systemPrompt:
         "You are a result summarizer. Create clear, concise summaries of action results.",
       maxRetries: 3,
+      llmClient: this.llmClient,
+      logger: this.logger,
     });
 
     return response.toString().trim();
@@ -1376,99 +1374,5 @@ ${actionExamplesText}
       );
       return [];
     }
-  }
-
-  private async getValidatedLLMResponse<T>({
-    prompt,
-    systemPrompt,
-    schema,
-    maxRetries = 3,
-    onRetry,
-  }: LLMValidationOptions<T>): Promise<T> {
-    const jsonSchema = zodToJsonSchema(schema, "mySchema");
-    const validate = ajv.compile(jsonSchema as JSONSchemaType<T>);
-    let attempts = 0;
-
-    const formattedPrompt = `
-      ${prompt}
-
-      <response_structure>
-      Return a JSON object matching this schema. Do not include any markdown formatting.
-
-      ${JSON.stringify(jsonSchema, null, 2)}
-      </response_structure>
-    `;
-
-    while (attempts < maxRetries) {
-      try {
-        const response = await this.llmClient.analyze(formattedPrompt, {
-          system: systemPrompt,
-        });
-
-        let responseText = response.toString();
-
-        // Remove markdown code block formatting if present
-        responseText = responseText.replace(/```json\n?|\n?```/g, "");
-
-        console.log(
-          "responseText: =================================",
-          responseText
-        );
-
-        let parsed: T;
-        try {
-          parsed = JSON.parse(responseText);
-        } catch (parseError) {
-          this.logger.error(
-            "getValidatedLLMResponse",
-            "Failed to parse LLM response as JSON",
-            {
-              response: responseText,
-              error: parseError,
-            }
-          );
-          attempts++;
-          onRetry?.(parseError as Error, attempts);
-          continue;
-        }
-
-        if (!validate(parsed)) {
-          this.logger.error(
-            "getValidatedLLMResponse",
-            "Response failed schema validation",
-            {
-              errors: validate.errors,
-              response: parsed,
-            }
-          );
-          attempts++;
-          onRetry?.(
-            new Error(
-              `Schema validation failed: ${JSON.stringify(validate.errors)}`
-            ),
-            attempts
-          );
-          continue;
-        }
-
-        return parsed;
-      } catch (error) {
-        this.logger.error(
-          "getValidatedLLMResponse",
-          `Attempt ${attempts + 1} failed`,
-          { error }
-        );
-        attempts++;
-        onRetry?.(error as Error, attempts);
-
-        if (attempts >= maxRetries) {
-          throw new Error(
-            `Failed to get valid LLM response after ${maxRetries} attempts: ${error}`
-          );
-        }
-      }
-    }
-
-    throw new Error("Maximum retries exceeded");
   }
 }

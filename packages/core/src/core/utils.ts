@@ -1,3 +1,7 @@
+import { Ajv, type JSONSchemaType } from "ajv";
+import zodToJsonSchema from "zod-to-json-schema";
+import type { LLMValidationOptions } from "../types";
+
 export const injectTags = (
   tags: Record<string, string> = {},
   text: string
@@ -119,4 +123,97 @@ export const calculateImportance = (result: string): number => {
 
   // Combine scores
   return Math.min(termScore + complexityScore, 1);
+};
+
+export const getValidatedLLMResponse = async <T>({
+  prompt,
+  systemPrompt,
+  schema,
+  maxRetries = 3,
+  onRetry,
+  llmClient,
+  logger,
+}: LLMValidationOptions<T>): Promise<T> => {
+  const ajv = new Ajv();
+
+  const jsonSchema = zodToJsonSchema(schema, "mySchema");
+  const validate = ajv.compile(jsonSchema as JSONSchemaType<T>);
+  let attempts = 0;
+
+  const formattedPrompt = `
+    ${prompt}
+
+    <response_structure>
+    Return a JSON object matching this schema. Do not include any markdown formatting.
+
+    ${JSON.stringify(jsonSchema, null, 2)}
+    </response_structure>
+  `;
+
+  while (attempts < maxRetries) {
+    try {
+      const response = await llmClient.analyze(formattedPrompt, {
+        system: systemPrompt,
+      });
+
+      let responseText = response.toString();
+
+      // Remove markdown code block formatting if present
+      responseText = responseText.replace(/```json\n?|\n?```/g, "");
+
+      let parsed: T;
+      try {
+        parsed = JSON.parse(responseText);
+      } catch (parseError) {
+        logger.error(
+          "getValidatedLLMResponse",
+          "Failed to parse LLM response as JSON",
+          {
+            response: responseText,
+            error: parseError,
+          }
+        );
+        attempts++;
+        onRetry?.(parseError as Error, attempts);
+        continue;
+      }
+
+      if (!validate(parsed)) {
+        logger.error(
+          "getValidatedLLMResponse",
+          "Response failed schema validation",
+          {
+            errors: validate.errors,
+            response: parsed,
+          }
+        );
+        attempts++;
+        onRetry?.(
+          new Error(
+            `Schema validation failed: ${JSON.stringify(validate.errors)}`
+          ),
+          attempts
+        );
+        continue;
+      }
+
+      return parsed;
+    } catch (error) {
+      logger.error(
+        "getValidatedLLMResponse",
+        `Attempt ${attempts + 1} failed`,
+        { error }
+      );
+      attempts++;
+      onRetry?.(error as Error, attempts);
+
+      if (attempts >= maxRetries) {
+        throw new Error(
+          `Failed to get valid LLM response after ${maxRetries} attempts: ${error}`
+        );
+      }
+    }
+  }
+
+  throw new Error("Maximum retries exceeded");
 };

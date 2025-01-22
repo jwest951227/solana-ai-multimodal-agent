@@ -21,11 +21,14 @@ import { JSONSchemaType } from "ajv";
 import { Consciousness } from "../packages/core/src/core/consciousness";
 
 async function main() {
+  const loglevel = LogLevel.ERROR;
   // Initialize core dependencies
   const vectorDb = new ChromaVectorDB("twitter_agent", {
     chromaUrl: "http://localhost:8000",
-    logLevel: LogLevel.DEBUG,
+    logLevel: loglevel,
   });
+
+  await vectorDb.purge(); // Clear previous session data
 
   const roomManager = new RoomManager(vectorDb);
 
@@ -38,13 +41,13 @@ async function main() {
     vectorDb,
     llmClient,
     defaultCharacter,
-    LogLevel.DEBUG
+    LogLevel.INFO
   );
 
   // Initialize core system
   const core = new Core(roomManager, vectorDb, processor, {
     logging: {
-      level: LogLevel.ERROR,
+      level: loglevel,
       enableColors: true,
       enableTimestamp: true,
     },
@@ -57,14 +60,14 @@ async function main() {
       password: env.TWITTER_PASSWORD,
       email: env.TWITTER_EMAIL,
     },
-    LogLevel.DEBUG
+    loglevel
   );
 
   // Initialize autonomous thought generation
   const consciousness = new Consciousness(llmClient, roomManager, {
     intervalMs: 300000, // Think every 5 minutes
     minConfidence: 0.7,
-    logLevel: LogLevel.ERROR,
+    logLevel: loglevel,
   });
 
   // Register input handler for Twitter mentions
