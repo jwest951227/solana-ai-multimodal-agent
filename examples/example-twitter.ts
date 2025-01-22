@@ -17,8 +17,10 @@ import { env } from "../packages/core/src/core/env";
 import { LogLevel } from "../packages/core/src/types";
 import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
-import { JSONSchemaType } from "ajv";
+
 import { Consciousness } from "../packages/core/src/core/consciousness";
+import type { AnySchema, JSONSchemaType } from "ajv";
+import { z } from "zod";
 
 async function main() {
   const loglevel = LogLevel.ERROR;
@@ -86,11 +88,11 @@ async function main() {
 
       return mentions;
     },
-    response: {
-      type: "string",
-      content: "string",
-      metadata: "object",
-    },
+    response: z.object({
+      type: z.string(),
+      content: z.string(),
+      metadata: z.record(z.any()),
+    }),
     interval: 60000, // Check mentions every minute
   });
 
@@ -108,11 +110,11 @@ async function main() {
 
       return thought;
     },
-    response: {
-      type: "string",
-      content: "string",
-      metadata: "object",
-    },
+    response: z.object({
+      type: z.string(),
+      content: z.string(),
+      metadata: z.record(z.any()),
+    }),
     interval: 300000, // Generate thoughts every 5 minutes
   });
 
@@ -125,18 +127,11 @@ async function main() {
         content: thoughtData.content,
       });
     },
-    response: {
-      success: "boolean",
-      tweetId: "string",
-    },
-    schema: {
-      type: "object" as const,
-      properties: {
-        content: { type: "string" as const, nullable: false },
-      },
-      required: ["content"],
-      additionalProperties: false,
-    } as any,
+    schema: z.object({
+      content: z
+        .string()
+        .regex(/^[\x20-\x7E]*$/, "No emojis or non-ASCII characters allowed"),
+    }),
   });
 
   // Register output handler for Twitter replies
@@ -146,19 +141,13 @@ async function main() {
       const tweetData = data as { content: string; inReplyTo: string };
       return twitter.createTweetOutput().handler(tweetData);
     },
-    response: {
-      success: "boolean",
-      tweetId: "string",
-    },
-    schema: {
-      type: "object" as const,
-      properties: {
-        content: { type: "string" as const, nullable: false },
-        inReplyTo: { type: "string" as const, nullable: false },
-      },
-      required: ["content", "inReplyTo"],
-      additionalProperties: false,
-    } as any,
+    schema: z.object({
+      content: z.string(),
+      inReplyTo: z
+        .string()
+        .optional()
+        .describe("The tweet ID to reply to, if any"),
+    }),
   });
 
   // Start monitoring

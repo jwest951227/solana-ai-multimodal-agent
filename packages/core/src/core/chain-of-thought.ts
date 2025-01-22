@@ -24,8 +24,6 @@ import { systemPromptAction } from "./actions/system-prompt";
 import Ajv from "ajv";
 import type { VectorDB } from "./vector-db";
 
-import { zodToJsonSchema } from "zod-to-json-schema";
-
 import type { AnySchema, JSONSchemaType } from "ajv";
 import { z } from "zod";
 

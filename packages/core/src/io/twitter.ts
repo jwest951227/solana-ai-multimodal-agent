@@ -110,7 +110,7 @@ export class TwitterClient {
       name: "twitter_tweet",
       handler: async (data: TweetData) => {
         await this.initialize();
-        return this.sendTweet(data);
+        return await this.sendTweet(data);
       },
       response: {
         success: "boolean",

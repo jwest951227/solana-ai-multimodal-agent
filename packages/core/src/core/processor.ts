@@ -9,6 +9,7 @@ import type { Output } from "./core";
 import type { JSONSchemaType } from "ajv";
 import { getValidatedLLMResponse } from "./utils";
 import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
 
 export interface ProcessedResult {
   content: any;
@@ -196,12 +197,12 @@ If this is feedback from a previous output:
 2. If successful, return an empty array - no new actions needed
 3. Only suggest new outputs if the previous action failed or requires follow-up
 
-Available Outputs:
+# Content Outputs Schemas - select the appropriate schema for the output. You can select one or more or none.
 ${availableOutputs
   .map(
     ([name, output]) => `${name}:
-  Schema: ${JSON.stringify(output.schema, null, 2)}
-  Response: ${JSON.stringify(output.response, null, 2)}`
+   ${JSON.stringify(zodToJsonSchema(output.schema, "mySchema"), null, 2)}
+  `
   )
   .join("\n\n")}
 
@@ -219,72 +220,21 @@ For each appropriate output, provide:
 `;
 
     try {
-      const response = await getValidatedLLMResponse({
+      return (await getValidatedLLMResponse({
         prompt,
         systemPrompt:
           "You are an expert system that analyzes content and suggests appropriate automated responses. You are precise and careful to ensure all data matches the required schemas.",
         schema: z.array(
           z.object({
             name: z.string(),
-            data: z.any(),
+            data: z.any().describe("The data that matches the output's schema"),
             confidence: z.number(),
             reasoning: z.string(),
           })
         ),
         llmClient: this.llmClient,
         logger: this.logger,
-      });
-
-      const suggestions: SuggestedOutput<any>[] =
-        typeof response === "string" ? JSON.parse(response) : response;
-
-      // Validate each suggestion against its output schema
-      return suggestions.filter((suggestion) => {
-        const output = this.availableOutputs.get(suggestion.name);
-        if (!output) {
-          this.logger.warn(
-            "Processor.determinePotentialOutputs",
-            "Unknown output suggested",
-            { name: suggestion.name }
-          );
-          return false;
-        }
-
-        try {
-          // Import Ajv properly
-          const Ajv = require("ajv");
-          const ajv = new Ajv();
-
-          const validate = ajv.compile(output.schema);
-          const isValid = validate(suggestion.data);
-
-          if (!isValid) {
-            this.logger.warn(
-              "Processor.determinePotentialOutputs",
-              "Invalid output data",
-              {
-                name: suggestion.name,
-                data: suggestion.data,
-                errors: validate.errors,
-              }
-            );
-            return false;
-          }
-
-          return true;
-        } catch (error) {
-          this.logger.error(
-            "Processor.determinePotentialOutputs",
-            "Schema validation error",
-            {
-              error,
-              suggestion,
-              schema: output.schema,
-            }
-          );
-          return false;
-        }
-      });
+      })) as SuggestedOutput<any>[];
     } catch (error) {
       this.logger.error("Processor.determinePotentialOutputs", "Error", {
         error,

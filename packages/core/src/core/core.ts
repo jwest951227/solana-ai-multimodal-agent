@@ -7,6 +7,7 @@ import { RoomManager } from "./room-manager";
 import type { VectorDB } from "./vector-db";
 import { LogLevel } from "../types";
 import type { Processor, SuggestedOutput } from "./processor";
+import type { z } from "zod";
 
 /**
  * Defines a scheduled or one-time task to be processed as 'input'.
@@ -14,7 +15,7 @@ import type { Processor, SuggestedOutput } from "./processor";
 export interface Input<T = unknown> {
   name: string;
   handler: (...args: unknown[]) => Promise<T>;
-  response: T;
+  response: z.ZodType<T>;
   interval?: number;
 }
 
@@ -24,8 +25,7 @@ export interface Input<T = unknown> {
 export interface Output<T = unknown> {
   name: string;
   handler: (data: T) => Promise<unknown>;
-  response: T;
-  schema: JSONSchemaType<T>;
+  schema: z.ZodType<T>;
 }
 
 export interface CoreConfig {
@@ -283,20 +283,6 @@ export class Core {
     const output = this.outputs.get(name);
     if (!output) {
       throw new Error(`No output registered with name: ${name}`);
-    }
-
-    // Validate against the output's schema
-    const validateFn = this.getValidatorForSchema(name, output.schema);
-    if (!validateFn(data)) {
-      this.logger.error("Core.executeOutput", "Schema validation failed", {
-        name,
-        data,
-        errors: validateFn.errors,
-        schema: output.schema,
-      });
-      throw new Error(
-        `Invalid data for output ${name}: ${JSON.stringify(validateFn.errors)}`
-      );
     }
 
     this.logger.debug("Core.executeOutput", "Executing output", {
