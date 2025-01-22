@@ -654,18 +654,19 @@ export class ChainOfThought extends EventEmitter {
         }),
       });
 
-      console.log("validateGoalSuccess response: =================================", response);
+      console.log(
+        "validateGoalSuccess response: =================================",
+        response
+      );
 
-      const result = JSON.parse(response.toString());
-
-      if (result.success) {
+      if (response.success) {
         this.addStep(
-          `Goal validated as successful: ${result.reason}`,
+          `Goal validated as successful: ${response.reason}`,
           "system",
           ["goal-validation"]
         );
       } else {
-        this.addStep(`Goal validation failed: ${result.reason}`, "system", [
+        this.addStep(`Goal validation failed: ${response.reason}`, "system", [
           "goal-validation",
         ]);
       }
@@ -673,11 +674,11 @@ export class ChainOfThought extends EventEmitter {
       // Record the outcome score
       this.goalManager.recordGoalOutcome(
         goal.id,
-        result.outcomeScore,
-        result.reason
+        response.outcomeScore,
+        response.reason
       );
 
-      return result.success;
+      return response.success;
     } catch (error) {
       this.logger.error("validateGoalSuccess", "Goal validation failed", {
         error,
@@ -1072,12 +1073,13 @@ ${actionExamplesText}
       });
 
       // Initialize with user query
-      this.addStep(`User  Query: ${userQuery}`, "task", ["user-query"]);
+      this.addStep(`User Query: ${userQuery}`, "task", ["user-query"]);
 
       let currentIteration = 0;
       let isComplete = false;
 
-      const llmResponse = await this.getValidatedLLMResponse({
+      // Get initial plan and actions
+      const initialResponse = await this.getValidatedLLMResponse({
         prompt: this.buildPrompt({ query: userQuery }),
         schema: z.object({
           plan: z.string().optional(),
@@ -1094,7 +1096,17 @@ ${actionExamplesText}
         maxRetries: 3,
       });
 
-      let pendingActions: CoTAction[] = [...llmResponse.actions] as CoTAction[];
+      // Initialize pending actions queue with initial actions
+      let pendingActions: CoTAction[] = [
+        ...initialResponse.actions,
+      ] as CoTAction[];
+
+      // Add initial plan as a step if provided
+      if (initialResponse.plan) {
+        this.addStep(`Initial plan: ${initialResponse.plan}`, "planning", [
+          "initial-plan",
+        ]);
+      }
 
       while (
         !isComplete &&
@@ -1103,142 +1115,127 @@ ${actionExamplesText}
       ) {
         this.logger.debug("think", "Processing iteration", {
           currentIteration,
+          pendingActionsCount: pendingActions.length,
         });
 
-        // Add new actions to pending queue
-        pendingActions.push(...(llmResponse.actions as CoTAction[]));
-
         // Process one action at a time
-        if (pendingActions.length > 0) {
-          const currentAction = pendingActions.shift()!;
-          this.logger.debug("think", "Processing action", {
-            action: currentAction,
-            remainingActions: pendingActions.length,
+        const currentAction = pendingActions.shift()!;
+        this.logger.debug("think", "Processing action", {
+          action: currentAction,
+          remainingActions: pendingActions.length,
+        });
+
+        try {
+          const result = await this.executeAction(currentAction);
+
+          // Store the experience
+          await this.storeExperience(currentAction.type, result);
+
+          // If the result seems important, store as knowledge
+          if (this.calculateImportance(result) > 0.7) {
+            await this.storeKnowledge(
+              `Learning from ${currentAction.type}`,
+              result,
+              "action_learning",
+              [currentAction.type, "automated_learning"]
+            );
+          }
+
+          const completion = await this.getValidatedLLMResponse({
+            prompt: `${this.buildPrompt({ result })}
+            ${JSON.stringify({
+              query: userQuery,
+              currentSteps: this.stepManager.getSteps(),
+              lastAction: currentAction.toString() + " RESULT:" + result,
+            })}
+            <verification_rules>
+             # Chain of Verification Analysis
+
+             ## Verification Steps
+             1. Original Query/Goal
+             - Verify exact requirements
+             2. All Steps Taken
+             - Verify successful completion of each step
+             3. Current Context  
+             - Verify state matches expectations
+             4. Last Action Result
+             - Verify correct outcome
+             5. Value Conversions
+             - Convert hex values to decimal for verification
+
+             ## Verification Process
+             - Check preconditions were met
+             - Validate proper execution
+             - Confirm expected postconditions  
+             - Check for edge cases/errors
+
+             ## Determination Criteria
+             - Goal Achievement Status
+             - Achieved or impossible? (complete)
+             - Supporting verification evidence (reason)
+             - Resource Requirements
+             - Continue if resources available? (shouldContinue)
+
+             </verification_rules>
+
+             <thinking_process>
+             Think in detail here
+             </thinking_process>
+               `,
+            schema: z.object({
+              complete: z.boolean(),
+              reason: z.string(),
+              shouldContinue: z.boolean(),
+              newActions: z.array(z.any()),
+            }),
+            systemPrompt:
+              "You are a goal completion analyzer using Chain of Verification...",
+            maxRetries: 3,
           });
 
           try {
-            const result = await this.executeAction(currentAction);
+            isComplete = completion.complete;
 
-            // Store the experience
-            await this.storeExperience(currentAction.type, result);
-
-            // If the result seems important, store as knowledge
-            if (this.calculateImportance(result) > 0.7) {
-              await this.storeKnowledge(
-                `Learning from ${currentAction.type}`,
-                result,
-                "action_learning",
-                [currentAction.type, "automated_learning"]
+            if (completion.newActions?.length > 0) {
+              // Add new actions to the end of the pending queue
+              const extractedActions = completion.newActions.flatMap(
+                (plan: any) => plan.actions || []
               );
+              pendingActions.push(...extractedActions);
+
+              this.logger.debug("think", "Added new actions", {
+                newActionsCount: extractedActions.length,
+                totalPendingCount: pendingActions.length,
+              });
             }
 
-            const prompt = `
-            ${this.buildPrompt({
-              result,
-            })}
-
-           ${JSON.stringify({
-             query: userQuery,
-             currentSteps: this.stepManager.getSteps(),
-             lastAction: currentAction.toString() + " RESULT:" + result,
-           })},
-
-           <verification_rules>
-            # Chain of Verification Analysis
-
-            ## Verification Steps
-            1. Original Query/Goal
-            - Verify exact requirements
-            2. All Steps Taken
-            - Verify successful completion of each step
-            3. Current Context  
-            - Verify state matches expectations
-            4. Last Action Result
-            - Verify correct outcome
-            5. Value Conversions
-            - Convert hex values to decimal for verification
-
-            ## Verification Process
-            - Check preconditions were met
-            - Validate proper execution
-            - Confirm expected postconditions  
-            - Check for edge cases/errors
-
-            ## Determination Criteria
-            - Goal Achievement Status
-            - Achieved or impossible? (complete)
-            - Supporting verification evidence (reason)
-            - Resource Requirements
-            - Continue if resources available? (shouldContinue)
-
-            </verification_rules>
-
-            <thinking_process>
-            Think in detail here
-            </thinking_process>
-              `;
-
-            const completion = await this.getValidatedLLMResponse({
-              prompt,
-              systemPrompt:
-                "You are a goal completion analyzer using Chain of Verification. Your task is to carefully evaluate whether a goal has been achieved or is impossible based on the provided context. Use <verification_rules> to guide your analysis.",
-              schema: z.object({
-                complete: z.boolean(),
-                reason: z.string(),
-                shouldContinue: z.boolean(),
-                newActions: z.array(z.any()),
-              }),
-              maxRetries: 3,
-              onRetry: (error, attempt) => {
-                this.logger.error("planStrategy", `Attempt ${attempt} failed`, {
-                  error,
-                });
-              },
-            });
-
-            try {
-              isComplete = completion.complete;
-
-              if (completion.newActions) {
-                // Extract actions from each plan in newActions
-                const extractedActions = completion.newActions.flatMap(
-                  (plan: any) => plan.actions || []
-                );
-                pendingActions.unshift(...extractedActions);
-              }
-
-              if (isComplete || !completion.shouldContinue) {
-                this.addStep(
-                  `Goal ${isComplete ? "achieved" : "failed"}: ${
-                    completion.reason
-                  }`,
-                  "system",
-                  ["completion"]
-                );
-                this.emit("think:complete", { query: userQuery });
-                return;
-              } else {
-                this.addStep(
-                  `Action completed, continuing execution: ${completion.reason}`,
-                  "system",
-                  ["continuation"]
-                );
-              }
-            } catch (error) {
-              this.logger.error(
-                "solveQuery",
-                "Error parsing completion check",
-                {
-                  error: error instanceof Error ? error.message : String(error),
-                  completion,
-                }
+            if (isComplete || !completion.shouldContinue) {
+              this.addStep(
+                `Goal ${isComplete ? "achieved" : "failed"}: ${
+                  completion.reason
+                }`,
+                "system",
+                ["completion"]
               );
-              continue;
+              this.emit("think:complete", { query: userQuery });
+              return;
+            } else {
+              this.addStep(
+                `Action completed, continuing execution: ${completion.reason}`,
+                "system",
+                ["continuation"]
+              );
             }
           } catch (error) {
-            this.emit("think:error", { query: userQuery, error });
-            throw error;
+            this.logger.error("think", "Error parsing completion check", {
+              error: error instanceof Error ? error.message : String(error),
+              completion,
+            });
+            continue;
           }
+        } catch (error) {
+          this.emit("think:error", { query: userQuery, error });
+          throw error;
         }
 
         currentIteration++;
@@ -1246,7 +1243,7 @@ ${actionExamplesText}
 
       if (currentIteration >= maxIterations) {
         const error = `Failed to solve query "${userQuery}" within ${maxIterations} iterations`;
-        this.logger.error("solveQuery", error);
+        this.logger.error("think", error);
         this.emit("think:timeout", { query: userQuery });
       }
     } catch (error) {
@@ -1262,30 +1259,35 @@ ${actionExamplesText}
     const resultStr =
       typeof result === "string" ? result : JSON.stringify(result, null, 2);
 
-    const summary = await this.llmClient.analyze(
-      `
-      Summarize this action result in a clear, concise way:
+    const response = await this.getValidatedLLMResponse({
+      prompt: `
+      # Action Result Summary
+      Summarize this action result in a clear, concise way
       
-      Action: ${action}
-      Result: ${resultStr}
+      # Action taken
+      ${action}
 
-      Rules for summary:
+      # Result of action
+      ${resultStr}
+
+      # Rules for summary:
       1. Be concise but informative (1-2 lines max)
-      2. Al values from the result to make the summary more informative
+      2. All values from the result to make the summary more informative
       3. Focus on the key outcomes or findings
       4. Use neutral, factual language
       5. Don't include technical details unless crucial
       6. Make it human-readable
       
-      Return only the summary text, no additional formatting or explanation.
+      # Rules for output
+      Return only the summary text, no additional formatting.
       `,
-      {
-        system:
-          "You are a result summarizer. Create clear, concise summaries of action results.",
-      }
-    );
+      schema: z.any(),
+      systemPrompt:
+        "You are a result summarizer. Create clear, concise summaries of action results.",
+      maxRetries: 3,
+    });
 
-    return summary.toString().trim();
+    return response.toString().trim();
   }
 
   private async storeExperience(
@@ -1580,13 +1582,15 @@ ${actionExamplesText}
           system: systemPrompt,
         });
 
-        
         let responseText = response.toString();
-        
+
         // Remove markdown code block formatting if present
         responseText = responseText.replace(/```json\n?|\n?```/g, "");
 
-        console.log("responseText: =================================", responseText);
+        console.log(
+          "responseText: =================================",
+          responseText
+        );
 
         let parsed: T;
         try {

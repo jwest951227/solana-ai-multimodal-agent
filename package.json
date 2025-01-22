@@ -4,7 +4,8 @@
   "scripts": {
     "goal": "bun run examples/example-goal.ts",
     "task": "bun run examples/example-basic.ts",
-    "twitter": "bun run examples/example-twitter.ts"
+    "twitter": "bun run examples/example-twitter.ts",
+    "test": "bun run packages/core"
   },
   "dependencies": {
     "@types/node": "^22.10.5",
