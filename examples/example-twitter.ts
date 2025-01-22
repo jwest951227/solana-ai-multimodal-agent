@@ -75,8 +75,16 @@ async function main() {
     name: "twitter_mentions",
     handler: async () => {
       console.log(chalk.blue("🔍 Checking Twitter mentions..."));
-      const mentions = await twitter.createMentionsInput(60000).handler();
-      return mentions; // Processor will analyze these and may generate replies
+      // Create a static mentions input handler
+      const mentionsInput = twitter.createMentionsInput(60000);
+      const mentions = await mentionsInput.handler();
+
+      // If no new mentions, return null to skip processing
+      if (!mentions || mentions.length === 0) {
+        return null;
+      }
+
+      return mentions;
     },
     response: {
       type: "string",
@@ -92,6 +100,12 @@ async function main() {
     handler: async () => {
       console.log(chalk.blue("🧠 Generating thoughts..."));
       const thought = await consciousness.start();
+
+      // If no thought was generated or it was already processed, skip
+      if (!thought || !thought.content) {
+        return null;
+      }
+
       return thought;
     },
     response: {

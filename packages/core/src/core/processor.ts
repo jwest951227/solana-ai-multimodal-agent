@@ -434,15 +434,26 @@ Return a JSON object with the following fields:
   // Helper method to generate a consistent ID for content
   private generateContentId(content: any): string {
     try {
-      // For strings, look for ID pattern first, then hash
+      // Special handling for Twitter mentions/tweets
+      if (Array.isArray(content) && content[0]?.type === "tweet") {
+        // For Twitter content, use the newest tweet's ID as the marker
+        const newestTweet = content[0];
+        return `tweet_batch_${newestTweet.metadata.tweetId}`;
+      }
+
+      // Single tweet handling
+      if (content?.type === "tweet") {
+        return `tweet_${content.metadata.tweetId}`;
+      }
+
+      // Keep existing logic for other content types
       if (typeof content === "string") {
         return `content_${hashString(content)}`;
       }
 
-      // For arrays, try to find IDs first
+      // For arrays of non-tweet content
       if (Array.isArray(content)) {
         const ids = content.map((item) => {
-          // Try to find an explicit ID first
           if (item.id) return item.id;
           if (item.metadata?.id) return item.metadata.id;
 
@@ -461,7 +472,7 @@ Return a JSON object with the following fields:
           return hashString(JSON.stringify(relevantData));
         });
 
-        return `array_${ids.join("_")}`;
+        return `array_${ids.join("_").slice(0, 100)}`; // Limit length of combined IDs
       }
 
       // For single objects, try to find an ID first

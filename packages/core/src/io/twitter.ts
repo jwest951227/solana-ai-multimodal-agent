@@ -139,17 +139,33 @@ export class TwitterClient {
       }
 
       // Filter and format mentions
-      return mentionsArray
-        .filter(
-          (tweet) =>
-            tweet.userId !== this.credentials.username &&
-            (!this.lastCheckedTweetId ||
-              BigInt(tweet.id ?? "") > this.lastCheckedTweetId)
-        )
-        .map((tweet) => {
-          this.lastCheckedTweetId = BigInt(tweet.id ?? "");
-          return this.formatTweetData(tweet);
-        });
+      const newMentions = mentionsArray
+        .filter((tweet) => {
+          // Skip own tweets and already processed tweets
+          if (tweet.userId === this.credentials.username) {
+            return false;
+          }
+
+          // Check if this is a new tweet we haven't seen
+          if (
+            this.lastCheckedTweetId &&
+            BigInt(tweet.id ?? "") <= this.lastCheckedTweetId
+          ) {
+            return false;
+          }
+
+          // Update last checked ID if newer
+          const tweetId = BigInt(tweet.id ?? "");
+          if (!this.lastCheckedTweetId || tweetId > this.lastCheckedTweetId) {
+            this.lastCheckedTweetId = tweetId;
+          }
+
+          return true;
+        })
+        .map(this.formatTweetData);
+
+      // Only return if we have new mentions
+      return newMentions.length > 0 ? newMentions : null;
     } catch (error) {
       this.logger.error(
         "TwitterClient.checkMentions",
@@ -181,7 +197,7 @@ export class TwitterClient {
     try {
       this.logger.info("TwitterClient.sendTweet", "Would send tweet", { data });
 
-      if (env.DRY_RUN === "true") {
+      if (env.DRY_RUN) {
         return {
           success: true,
           tweetId: "DRY RUN TWEET ID",
