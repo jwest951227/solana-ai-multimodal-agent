@@ -1,3 +1,12 @@
+/**
+ * Example demonstrating a Twitter bot using the Daydreams package.
+ * This bot can:
+ * - Monitor Twitter mentions and auto-reply
+ * - Generate autonomous thoughts and tweet them
+ * - Maintain conversation memory using ChromaDB
+ * - Process inputs through a character-based personality
+ */
+
 import { Core } from "../packages/core/src/core/core";
 import { tweetSchema, TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
@@ -21,10 +30,10 @@ async function main() {
   const roomManager = new RoomManager(vectorDb);
 
   const llmClient = new LLMClient({
-    model: "deepseek/deepseek-r1", // clutch model!
+    model: "deepseek/deepseek-r1", // High performance model
   });
 
-  // Initialize processor with character definition
+  // Initialize processor with default character personality
   const processor = new Processor(
     vectorDb,
     llmClient,
@@ -32,7 +41,7 @@ async function main() {
     LogLevel.DEBUG
   );
 
-  // Initialize core
+  // Initialize core system
   const core = new Core(roomManager, vectorDb, processor, {
     logging: {
       level: LogLevel.ERROR,
@@ -41,7 +50,7 @@ async function main() {
     },
   });
 
-  // Initialize Twitter client
+  // Set up Twitter client with credentials
   const twitter = new TwitterClient(
     {
       username: env.TWITTER_USERNAME,
@@ -51,32 +60,30 @@ async function main() {
     LogLevel.DEBUG
   );
 
-  // Initialize consciousness
+  // Initialize autonomous thought generation
   const consciousness = new Consciousness(llmClient, roomManager, {
     intervalMs: 300000, // Think every 5 minutes
     minConfidence: 0.7,
     logLevel: LogLevel.ERROR,
   });
 
-  // Register Twitter inputs
+  // Register input handler for Twitter mentions
   core.registerInput({
     name: "twitter_mentions",
     handler: async () => {
       console.log(chalk.blue("🔍 Checking Twitter mentions..."));
       const mentions = await twitter.createMentionsInput(60000).handler();
-
-      // The processor will analyze these mentions and may suggest replies
-      return mentions;
+      return mentions; // Processor will analyze these and may generate replies
     },
     response: {
       type: "string",
       content: "string",
       metadata: "object",
     },
-    interval: 60000,
+    interval: 60000, // Check mentions every minute
   });
 
-  // Register consciousness input
+  // Register input handler for autonomous thoughts
   core.registerInput({
     name: "consciousness_thoughts",
     handler: async () => {
@@ -89,10 +96,10 @@ async function main() {
       content: "string",
       metadata: "object",
     },
-    interval: 300000, // Check for new thoughts every 5 minutes
+    interval: 300000, // Generate thoughts every 5 minutes
   });
 
-  // Register Twitter output for thoughts
+  // Register output handler for posting thoughts to Twitter
   core.registerOutput({
     name: "twitter_thought",
     handler: async (data: unknown) => {
@@ -115,7 +122,7 @@ async function main() {
     } as any,
   });
 
-  // Register Twitter output for auto-replies
+  // Register output handler for Twitter replies
   core.registerOutput({
     name: "twitter_reply",
     handler: async (data: unknown) => {
@@ -137,18 +144,16 @@ async function main() {
     } as any,
   });
 
-  // Keep the process running
+  // Start monitoring
   console.log(chalk.cyan("🤖 Bot is now running and monitoring Twitter..."));
   console.log(chalk.cyan("Press Ctrl+C to stop"));
 
-  // Handle shutdown gracefully
+  // Handle graceful shutdown
   process.on("SIGINT", async () => {
     console.log(chalk.yellow("\n\nShutting down..."));
 
-    // Stop consciousness
+    // Clean up resources
     await consciousness.stop();
-
-    // Remove all inputs and outputs
     core.removeInput("twitter_mentions");
     core.removeInput("consciousness_thoughts");
     core.removeOutput("twitter_reply");
