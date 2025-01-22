@@ -2,6 +2,7 @@ import { Scraper, SearchMode, type Tweet } from "agent-twitter-client";
 import type { JSONSchemaType } from "ajv";
 import { Logger } from "../core/logger";
 import { LogLevel } from "../types";
+import { env } from "../core/env";
 
 interface TwitterCredentials {
   username: string;
@@ -178,12 +179,23 @@ export class TwitterClient {
 
   private async sendTweet(data: TweetData) {
     try {
-      // TODO: Implement actual tweet sending using scraper
       this.logger.info("TwitterClient.sendTweet", "Would send tweet", { data });
+
+      if (env.DRY_RUN === "true") {
+        return {
+          success: true,
+          tweetId: "DRY RUN TWEET ID",
+        };
+      }
+
+      const sendTweetResults = await this.scraper.sendTweet(
+        data.content,
+        data?.inReplyTo
+      );
 
       return {
         success: true,
-        tweetId: "mock-tweet-id", // Replace with actual tweet ID
+        tweetId: sendTweetResults,
       };
     } catch (error) {
       this.logger.error("TwitterClient.sendTweet", "Error sending tweet", {
