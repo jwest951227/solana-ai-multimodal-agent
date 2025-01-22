@@ -12,7 +12,12 @@ import { EventEmitter } from "events";
 import { GoalManager } from "./goal-manager";
 import { StepManager, type Step, type StepType } from "./step-manager";
 import { LogLevel } from "../types";
-import { generateUniqueId, injectTags } from "./utils";
+import {
+  calculateImportance,
+  determineEmotions,
+  generateUniqueId,
+  injectTags,
+} from "./utils";
 import { systemPromptAction } from "./actions/system-prompt";
 import Ajv from "ajv";
 import type { VectorDB, EpisodicMemory, Documentation } from "./vector-db";
@@ -21,7 +26,6 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 
 // Todo: remove these when we bundle
 import * as fs from "fs";
-import * as path from "path";
 import type { AnySchema, JSONSchemaType } from "ajv";
 import { z } from "zod";
 
@@ -48,7 +52,6 @@ export class ChainOfThought extends EventEmitter {
   private context: ChainOfThoughtContext;
   private snapshots: ChainOfThoughtContext[];
   private logger: Logger;
-  private contextLogPath: string;
   goalManager: GoalManager;
   public memory: VectorDB;
 
@@ -69,40 +72,27 @@ export class ChainOfThought extends EventEmitter {
     } = {}
   ) {
     super();
-
     this.setMaxListeners(50);
-
+    this.memory = memory;
     this.stepManager = new StepManager();
+    this.snapshots = [];
+    this.goalManager = new GoalManager();
+
     this.context = initialContext ?? {
       worldState: "",
     };
-    this.snapshots = [];
+
     this.logger = new Logger({
       level: config.logLevel ?? LogLevel.ERROR,
       enableColors: true,
       enableTimestamp: true,
     });
 
-    // Forward LLM client events
     this.llmClient.on("trace:tokens", (data) => {
       this.emit("trace:tokens", data);
     });
 
-    this.contextLogPath = path.join(process.cwd(), "logs", "context.log");
-    // Ensure logs directory exists
-    const logsDir = path.dirname(this.contextLogPath);
-    if (!fs.existsSync(logsDir)) {
-      fs.mkdirSync(logsDir, { recursive: true });
-    }
-    // Log initial context
-    this.logContext("INITIAL_CONTEXT");
-
-    this.goalManager = new GoalManager();
-
     this.registerDefaultActions();
-
-    // Initialize single memory system
-    this.memory = memory;
   }
 
   public async planStrategy(objective: string): Promise<void> {
@@ -170,12 +160,12 @@ export class ChainOfThought extends EventEmitter {
       7. Consider past experiences when setting goals
       8. Use available game state information to inform strategy
       
-      Return a JSON structure with three arrays:
+      # Return a JSON structure with three arrays:
       - long_term: Strategic goals that might take multiple sessions
       - medium_term: Tactical goals achievable in one session
       - short_term: Immediate actionable goals
       
-      Each goal must include:
+      # Each goal must include:
       - description: Clear goal statement
       - success_criteria: Array of specific conditions for completion
       - dependencies: Array of prerequisite goal IDs (empty for initial goals)
@@ -251,22 +241,19 @@ export class ChainOfThought extends EventEmitter {
 
   private getPrioritizedGoals(): Goal[] {
     const readyGoals = this.goalManager.getReadyGoals();
-
-    // Sort first by horizon priority (short > medium > long)
-    const horizonPriority = {
+    const horizonPriority: Record<string, number> = {
       short: 3,
       medium: 2,
       long: 1,
     };
 
     return readyGoals.sort((a, b) => {
-      // First sort by horizon
       const horizonDiff =
         horizonPriority[a.horizon] - horizonPriority[b.horizon];
-      if (horizonDiff !== 0) return -horizonDiff;
-
-      // Then by explicit priority
-      return (b.priority || 0) - (a.priority || 0);
+      if (horizonDiff !== 0) {
+        return -horizonDiff;
+      }
+      return (b.priority ?? 0) - (a.priority ?? 0);
     });
   }
 
@@ -285,7 +272,9 @@ export class ChainOfThought extends EventEmitter {
 
     const prompt = `
       <goal_execution_check>
-      Goal: ${goal.description}
+
+      # Goal
+      ${goal.description}
 
       <relevant_context>
       ${relevantDocs
@@ -306,7 +295,8 @@ export class ChainOfThought extends EventEmitter {
       Required dependencies:
       ${JSON.stringify(goal.dependencies || {}, null, 2)}
       
-      Analyze if this goal can be executed right now. Consider:
+      # Analyze if this goal can be executed right now. Consider:
+
       1. Are all required resources available in the current game state?
       2. Are environmental conditions met?
       3. Are there any blocking conditions?
@@ -357,6 +347,13 @@ export class ChainOfThought extends EventEmitter {
   }
 
   private async refineGoal(goal: Goal, maxRetries: number = 3): Promise<void> {
+    const [relevantDocs, relevantExperiences, blackboardState] =
+      await Promise.all([
+        this.memory.findSimilarDocuments(goal.description, 5),
+        this.memory.findSimilarEpisodes(goal.description, 3),
+        this.getBlackboardState(),
+      ]);
+
     const schema = z.array(
       z
         .object({
@@ -373,15 +370,30 @@ export class ChainOfThought extends EventEmitter {
       <goal_refinement>
       Goal to Refine: ${goal.description}
       
-      Current Context:
-      ${JSON.stringify(this.context, null, 2)}
-      
+      <relevant_context>
+      ${relevantDocs
+        .map((doc) => `Document: ${doc.title}\n${doc.content}`)
+        .join("\n\n")}
+      </relevant_context>
+
+      <relevant_experiences>
+      ${relevantExperiences
+        .map((exp) => `Experience: ${exp.action}\n${exp.outcome}`)
+        .join("\n\n")}
+      </relevant_experiences>
+
+      <current_game_state>
+      ${JSON.stringify(blackboardState, null, 2)}
+      </current_game_state>
+
+      # Goal Refinement Rules
       Break this goal down into more specific, immediately actionable sub-goals.
       Each sub-goal must be:
       1. Concrete and measurable
       2. Achievable with current resources
       3. Properly sequenced
 
+      # Goal Refinement Schema
       Return an array of sub-goals, each with:
       - description: Clear goal statement
       - success_criteria: Array of specific conditions for completion
@@ -687,21 +699,6 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  private logContext(trigger: string): void {
-    const timestamp = new Date().toISOString();
-    const logEntry = `\n[${timestamp}] Context changed by: ${trigger}\n${JSON.stringify(
-      this.context,
-      null,
-      2
-    )}\n${"=".repeat(80)}\n`;
-
-    try {
-      fs.appendFileSync(this.contextLogPath, logEntry);
-    } catch (error) {
-      this.logger.error("logContext", "Failed to write context log", { error });
-    }
-  }
-
   /**
    * Add a new step to the end of the chain.
    * @param content Reasoning or textual content of the step.
@@ -730,84 +727,6 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Insert a new step at a specified index in the chain.
-   * Useful if you need to adjust or backtrack the chain of thought.
-   * @param index The position where the new step should be inserted.
-   * @param content The content of the new step.
-   * @param tags Optional tags for the step.
-   * @param meta Optional metadata.
-   */
-  public insertStep(
-    index: number,
-    content: string,
-    tags?: string[],
-    meta?: Record<string, any>
-  ): Step {
-    this.logger.debug("insertStep", "Inserting step at index", {
-      index,
-      content,
-      tags,
-      meta,
-    });
-
-    if (index < 0 || index > this.stepManager.getSteps().length) {
-      const error = `Invalid index: ${index}. Index must be between 0 and ${
-        this.stepManager.getSteps().length
-      }`;
-      this.logger.error("insertStep", error);
-      throw new Error(error);
-    }
-
-    const newStep: Step = {
-      id: generateUniqueId(),
-      type: "action",
-      content,
-      timestamp: Date.now(),
-      tags,
-      meta,
-    } as Step;
-
-    this.stepManager.getSteps().splice(index, 0, newStep);
-    return newStep;
-  }
-
-  /**
-   * Update the content of an existing step.
-   * @param stepId Unique identifier for the step to be updated.
-   * @param newContent The new textual content.
-   */
-  public updateStepContent(stepId: string, newContent: string): void {
-    this.logger.debug("updateStepContent", "Updating step content", {
-      stepId,
-      newContent,
-    });
-
-    const step = this.stepManager.getStepById(stepId);
-    if (step && "content" in step) {
-      (step as { content: string; timestamp: number }).content = newContent;
-      (step as { content: string; timestamp: number }).timestamp = Date.now();
-    } else {
-      this.logger.warn("updateStepContent", "Step not found or invalid type", {
-        stepId,
-      });
-    }
-  }
-
-  /**
-   * Retrieve the entire chain of steps.
-   */
-  public getSteps(): Step[] {
-    return this.stepManager.getSteps();
-  }
-
-  /**
-   * Retrieve the current context.
-   */
-  public getContext(): ChainOfThoughtContext {
-    return this.context;
-  }
-
-  /**
    * Merge new data into the current context.
    * @param newContext Partial context to merge into the existing context.
    */
@@ -818,8 +737,6 @@ export class ChainOfThought extends EventEmitter {
       ...this.context,
       ...newContext,
     };
-
-    this.logContext("MERGE_CONTEXT");
   }
 
   /**
@@ -830,8 +747,6 @@ export class ChainOfThought extends EventEmitter {
 
     const snapshot = JSON.parse(JSON.stringify(this.context));
     this.snapshots.push(snapshot);
-
-    this.logContext("SNAPSHOT_CREATED");
   }
 
   /**
@@ -1129,10 +1044,10 @@ ${actionExamplesText}
           const result = await this.executeAction(currentAction);
 
           // Store the experience
-          await this.storeExperience(currentAction.type, result);
+          await this.storeEpisode(currentAction.type, result);
 
           // If the result seems important, store as knowledge
-          if (this.calculateImportance(result) > 0.7) {
+          if (calculateImportance(result) > 0.7) {
             await this.storeKnowledge(
               `Learning from ${currentAction.type}`,
               result,
@@ -1290,7 +1205,7 @@ ${actionExamplesText}
     return response.toString().trim();
   }
 
-  private async storeExperience(
+  private async storeEpisode(
     action: string,
     result: string | Record<string, any>,
     importance?: number
@@ -1298,9 +1213,9 @@ ${actionExamplesText}
     try {
       const formattedOutcome = await this.formatActionOutcome(action, result);
       const calculatedImportance =
-        importance ?? this.calculateImportance(formattedOutcome);
+        importance ?? calculateImportance(formattedOutcome);
       const actionWithResult = `${action} RESULT: ${result}`;
-      const emotions = this.determineEmotions(
+      const emotions = determineEmotions(
         actionWithResult,
         formattedOutcome,
         calculatedImportance
@@ -1324,102 +1239,10 @@ ${actionExamplesText}
         },
       });
     } catch (error) {
-      this.logger.error("storeExperience", "Failed to store experience", {
+      this.logger.error("storeEpisode", "Failed to store experience", {
         error,
       });
     }
-  }
-
-  private determineEmotions(
-    action: string,
-    result: string | Record<string, any>,
-    importance: number
-  ): string[] {
-    const resultStr =
-      typeof result === "string" ? result : JSON.stringify(result);
-    const resultLower = resultStr.toLowerCase();
-    const emotions: string[] = [];
-
-    // Success/failure emotions
-    const isFailure =
-      resultLower.includes("error") || resultLower.includes("failed");
-    const isHighImportance = importance > 0.7;
-
-    if (isFailure) {
-      emotions.push("frustrated");
-      if (isHighImportance) emotions.push("concerned");
-    } else {
-      emotions.push("satisfied");
-      if (isHighImportance) emotions.push("excited");
-    }
-
-    // Learning emotions
-    if (resultLower.includes("learned") || resultLower.includes("discovered")) {
-      emotions.push("curious");
-    }
-
-    // Action-specific emotions
-    if (action.includes("QUERY") || action.includes("FETCH")) {
-      emotions.push("analytical");
-    }
-    if (action.includes("TRANSACTION") || action.includes("EXECUTE")) {
-      emotions.push("focused");
-    }
-
-    return emotions;
-  }
-
-  private calculateImportance(result: string): number {
-    const keyTerms = {
-      high: [
-        "error",
-        "critical",
-        "important",
-        "success",
-        "discovered",
-        "learned",
-        "achieved",
-        "completed",
-        "milestone",
-      ],
-      medium: [
-        "updated",
-        "modified",
-        "changed",
-        "progress",
-        "partial",
-        "attempted",
-      ],
-      low: ["checked", "verified", "queried", "fetched", "routine", "standard"],
-    };
-
-    const resultLower = result.toLowerCase();
-
-    // Calculate term-based score
-    let termScore = 0;
-    keyTerms.high.forEach((term) => {
-      if (resultLower.includes(term)) termScore += 0.3;
-    });
-    keyTerms.medium.forEach((term) => {
-      if (resultLower.includes(term)) termScore += 0.2;
-    });
-    keyTerms.low.forEach((term) => {
-      if (resultLower.includes(term)) termScore += 0.1;
-    });
-
-    // Cap term score at 0.7
-    termScore = Math.min(termScore, 0.7);
-
-    // Calculate complexity score based on result length and structure
-    const complexityScore = Math.min(
-      result.length / 1000 +
-        result.split("\n").length / 20 +
-        (JSON.stringify(result).match(/{/g)?.length || 0) / 10,
-      0.3
-    );
-
-    // Combine scores
-    return Math.min(termScore + complexityScore, 1);
   }
 
   private async storeKnowledge(
@@ -1486,7 +1309,7 @@ ${actionExamplesText}
     }
   }
 
-  private async getBlackboardState(): Promise<Record<string, any>> {
+  async getBlackboardState(): Promise<Record<string, any>> {
     try {
       // Use findDocumentsByCategory to get all blackboard documents
       const blackboardDocs = await this.memory.searchDocumentsByTag([
@@ -1523,7 +1346,7 @@ ${actionExamplesText}
     }
   }
 
-  private async getBlackboardHistory(
+  async getBlackboardHistory(
     type?: string,
     key?: string,
     limit: number = 10

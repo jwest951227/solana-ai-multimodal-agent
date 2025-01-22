@@ -58,6 +58,9 @@ async function main() {
   // Initialize memory
   const memory = new ChromaVectorDB("agent_memory");
 
+  // Purge all collections so each run is fresh
+  await memory.purge();
+
   // Load initial context
   await memory.storeDocument({
     title: "Game Rules",

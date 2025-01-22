@@ -48,6 +48,8 @@ export interface VectorDB {
     limit?: number
   ): Promise<Documentation[]>;
   updateDocument(id: string, updates: Partial<Documentation>): Promise<void>;
+
+  purge(): Promise<void>;
 }
 
 export interface EpisodicMemory {
@@ -1547,5 +1549,39 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     return hierarchy;
+  }
+
+  /**
+   * Purges all collections and data from the database.
+   * Use with caution - this is irreversible!
+   */
+  public async purge(): Promise<void> {
+    try {
+      this.logger.warn("ChromaVectorDB.purge", "Purging all collections");
+
+      // Get list of all collections
+      const collections = await this.client.listCollections();
+
+      // Delete each collection
+      for (const collection of collections) {
+        await this.client.deleteCollection({ name: collection });
+        this.logger.debug("ChromaVectorDB.purge", "Deleted collection", {
+          name: collection,
+        });
+      }
+
+      this.logger.info(
+        "ChromaVectorDB.purge",
+        "Successfully purged all collections",
+        {
+          collectionCount: collections.length,
+        }
+      );
+    } catch (error) {
+      this.logger.error("ChromaVectorDB.purge", "Failed to purge collections", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 }
