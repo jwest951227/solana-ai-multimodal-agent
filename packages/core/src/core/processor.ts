@@ -1,7 +1,7 @@
 import { LLMClient } from "./llm-client";
 import { Logger } from "./logger";
 import { Room } from "./room";
-import type { VectorDB } from "./vector-db";
+import type { VectorDB } from "../types";
 
 import type {
   Character,

@@ -219,3 +219,13 @@ export const getValidatedLLMResponse = async <T>({
 
   throw new Error("Maximum retries exceeded");
 };
+
+export function isValidDateValue(
+  value: unknown
+): value is string | number | Date {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    value instanceof Date
+  );
+}

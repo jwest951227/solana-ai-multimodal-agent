@@ -14,7 +14,6 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
     "@openrouter/ai-sdk-provider": "^0.0.6",
     "agent-twitter-client": "^0.0.16",
     "ai": "^4.1.0",
@@ -24,7 +23,6 @@
     "openai": "^4.76.0",
     "starknet": "^6.11.0",
     "tsup": "^8.3.5",
-    "uuid": "^11.0.3",
     "vitest": "^2.1.8",
     "zod": "^3.24.1",
     "zod-to-json-schema": "^3.24.1"

@@ -1,6 +1,4 @@
 import type { z } from "zod";
-import type { Documentation } from "../core/vector-db";
-import type { EpisodicMemory } from "../core/vector-db";
 import type { LLMClient } from "../core/llm-client";
 import type { Logger } from "../core/logger";
 
@@ -219,18 +217,6 @@ export interface ChainOfThoughtEvents {
   "trace:tokens": (data: { input: number; output: number }) => void;
 }
 
-// Add type safety to event emitter
-export declare interface ChainOfThought {
-  on<K extends keyof ChainOfThoughtEvents>(
-    event: K,
-    listener: ChainOfThoughtEvents[K]
-  ): this;
-  emit<K extends keyof ChainOfThoughtEvents>(
-    event: K,
-    ...args: Parameters<ChainOfThoughtEvents[K]>
-  ): boolean;
-}
-
 export interface RefinedGoal {
   description: string;
   success_criteria: string[];
@@ -417,4 +403,123 @@ export interface Memory {
   timestamp: Date;
   metadata?: Record<string, any>;
   embedding?: number[];
+}
+
+export interface VectorDB {
+  findSimilar(
+    content: string,
+    limit?: number,
+    metadata?: Record<string, any>
+  ): Promise<SearchResult[]>;
+
+  store(content: string, metadata?: Record<string, any>): Promise<void>;
+
+  delete(id: string): Promise<void>;
+
+  storeInRoom?(
+    content: string,
+    roomId: string,
+    metadata?: Record<string, any>
+  ): Promise<void>;
+
+  findSimilarInRoom?(
+    content: string,
+    roomId: string,
+    limit?: number,
+    metadata?: Record<string, any>
+  ): Promise<SearchResult[]>;
+
+  storeSystemMetadata(key: string, value: Record<string, any>): Promise<void>;
+  getSystemMetadata(key: string): Promise<Record<string, any> | null>;
+
+  storeEpisode(memory: Omit<EpisodicMemory, "id">): Promise<string>;
+  findSimilarEpisodes(
+    action: string,
+    limit?: number
+  ): Promise<EpisodicMemory[]>;
+  getRecentEpisodes(limit?: number): Promise<EpisodicMemory[]>;
+
+  storeDocument(doc: Omit<Documentation, "id">): Promise<string>;
+  findSimilarDocuments(query: string, limit?: number): Promise<Documentation[]>;
+  searchDocumentsByTag(
+    tags: string[],
+    limit?: number
+  ): Promise<Documentation[]>;
+  updateDocument(id: string, updates: Partial<Documentation>): Promise<void>;
+
+  purge(): Promise<void>;
+}
+
+export interface EpisodicMemory {
+  id: string;
+  timestamp: Date;
+  action: string;
+  outcome: string;
+  context?: Record<string, any>;
+  emotions?: string[];
+  importance?: number;
+}
+
+export interface Documentation {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  lastUpdated: Date;
+  source?: string;
+  relatedIds?: string[];
+}
+
+export interface Cluster {
+  id: string;
+  name: string;
+  description: string;
+  centroid?: number[];
+  topics: string[];
+  documentCount: number;
+  lastUpdated: Date;
+}
+
+export interface ClusterMetadata {
+  clusterId: string;
+  confidence: number;
+  topics: string[];
+}
+
+export interface ClusterStats {
+  variance: number;
+  memberCount: number;
+  averageDistance: number;
+}
+
+export interface ClusterUpdate {
+  newCentroid?: number[];
+  documentCount: number;
+  topics: string[];
+  variance?: number;
+}
+
+export interface DocumentClusterMetadata extends ClusterMetadata {
+  category: string;
+  commonTags: string[];
+}
+
+export interface EpisodeClusterMetadata extends ClusterMetadata {
+  commonEmotions: string[];
+  averageImportance: number;
+}
+
+export interface HierarchicalCluster extends Cluster {
+  parentId?: string;
+  childIds: string[];
+  level: number;
+  domain: string;
+  subDomain?: string;
+}
+
+export interface DomainMetadata {
+  domain: string;
+  subDomain?: string;
+  confidence: number;
 }

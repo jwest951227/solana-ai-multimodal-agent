@@ -1,9 +1,9 @@
 import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
-import type { VectorDB } from "./vector-db";
+import type { VectorDB } from "../types";
 import { LogLevel, type Input, type LoggerConfig, type Output } from "../types";
 import type { Processor } from "./processor";
-import { TaskScheduler } from "./task-sheduler";
+import { TaskScheduler } from "./task-scheduler";
 
 /**
  * Core system that manages inputs, outputs, and processing.

@@ -19,7 +19,7 @@ import {
   injectTags,
 } from "./utils";
 import Ajv from "ajv";
-import type { VectorDB } from "./vector-db";
+import type { VectorDB } from "../types";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
 import type { Output } from "../types";

@@ -4,13 +4,13 @@ import { Logger } from "../core/logger";
 import { LogLevel } from "../types";
 import { env } from "../core/env";
 
-interface TwitterCredentials {
+export interface TwitterCredentials {
   username: string;
   password: string;
   email: string;
 }
 
-interface TweetData {
+export interface TweetData {
   content: string;
   inReplyTo?: string;
   conversationId?: string;
