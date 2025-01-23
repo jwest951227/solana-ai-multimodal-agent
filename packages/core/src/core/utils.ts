@@ -144,9 +144,11 @@ export const getValidatedLLMResponse = async <T>({
     ${prompt}
 
     <response_structure>
-    Return a JSON object matching this schema. Do not include any markdown formatting.
+    Return a JSON object matching this schema. Do not include any markdown formatting, slashes or comments.
 
     ${JSON.stringify(jsonSchema, null, 2)}
+
+    Do not include any markdown formatting, slashes or comments.
     </response_structure>
   `;
 

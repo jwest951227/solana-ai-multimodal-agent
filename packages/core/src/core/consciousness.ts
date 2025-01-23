@@ -1,46 +1,13 @@
 import { Logger } from "./logger";
 import { LLMClient } from "./llm-client";
-import { type Core } from "./core";
 import { type Room } from "./room";
 import { type RoomManager } from "./room-manager";
-import { LogLevel } from "../types";
-
-export interface Thought {
-  content: string;
-  confidence: number;
-  context?: Record<string, any>;
-  timestamp: Date;
-  type: string;
-  source: string;
-  metadata?: Record<string, any>;
-  roomId?: string;
-}
-
-export type ThoughtType =
-  | "social_share" // For tweets, posts, etc.
-  | "research" // For diving deeper into topics
-  | "analysis" // For analyzing patterns or data
-  | "alert" // For important notifications
-  | "inquiry"; // For asking questions or seeking information
-
-export interface ThoughtTemplate {
-  type: ThoughtType;
-  description: string;
-  prompt: string;
-  temperature: number;
-  responseFormat: {
-    thought: string;
-    confidence: number;
-    reasoning: string;
-    context: Record<string, any>;
-    suggestedActions: Array<{
-      type: string;
-      platform?: string;
-      priority: number;
-      parameters?: Record<string, any>;
-    }>;
-  };
-}
+import {
+  LogLevel,
+  type Thought,
+  type ThoughtTemplate,
+  type ThoughtType,
+} from "../types";
 
 export class Consciousness {
   private static readonly ROOM_ID = "consciousness_main"; // Use a constant room ID

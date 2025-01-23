@@ -1,5 +1,3 @@
-import type { ActionHandler } from "../../types";
-
 import * as readline from "readline";
 
 async function askUser(question: string): Promise<string> {
@@ -16,7 +14,7 @@ async function askUser(question: string): Promise<string> {
   });
 }
 
-export const systemPromptAction: ActionHandler = async (action, chain) => {
+export const systemPromptAction = async (action: any) => {
   const userResponse = await askUser(action.payload.prompt);
   return userResponse;
 };

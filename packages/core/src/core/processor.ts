@@ -2,49 +2,20 @@ import { LLMClient } from "./llm-client";
 import { Logger } from "./logger";
 import { Room } from "./room";
 import type { VectorDB } from "./vector-db";
-import type { Character } from "./character";
-import type { SearchResult } from "../types";
+
+import type {
+  Character,
+  EnrichedContent,
+  Output,
+  ProcessedResult,
+  SearchResult,
+  SuggestedOutput,
+} from "../types";
 import { LogLevel } from "../types";
-import type { Output } from "./core";
-import type { JSONSchemaType } from "ajv";
+
 import { getValidatedLLMResponse } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-
-export interface ProcessedResult {
-  content: any;
-  metadata: Record<string, any>;
-  enrichedContext: EnrichedContext;
-  suggestedOutputs: SuggestedOutput<any>[];
-  isOutputSuccess?: boolean;
-  alreadyProcessed?: boolean;
-}
-
-export interface SuggestedOutput<T> {
-  name: string;
-  data: T;
-  confidence: number;
-  reasoning: string;
-}
-
-export interface EnrichedContext {
-  timeContext: string;
-  summary: string;
-  topics: string[];
-  relatedMemories: string[];
-  sentiment?: string;
-  entities?: string[];
-  intent?: string;
-  similarMessages?: any[];
-  metadata?: Record<string, any>;
-  availableOutputs?: string[]; // Names of available outputs
-}
-
-interface EnrichedContent {
-  originalContent: string;
-  timestamp: Date;
-  context: EnrichedContext;
-}
 
 // Type guard for VectorDB with room methods
 interface VectorDBWithRooms extends VectorDB {

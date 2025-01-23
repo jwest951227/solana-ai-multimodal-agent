@@ -12,15 +12,15 @@ import { ChainOfThought } from "../packages/core/src/core/chain-of-thought";
 import { ETERNUM_CONTEXT, PROVIDER_GUIDE } from "./eternum-context";
 import * as readline from "readline";
 import chalk from "chalk";
-import { starknetTransactionAction } from "../packages/core/src/core/actions/starknet-transaction";
-import { graphqlAction } from "../packages/core/src/core/actions/graphql";
-import {
-  graphqlFetchSchema,
-  starknetTransactionSchema,
-} from "../packages/core/src/core/validation";
-import type { JSONSchemaType } from "ajv";
+
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
-import { GoalStatus } from "../packages/core/src/types";
+import { GoalStatus, LogLevel } from "../packages/core/src/types";
+import {
+  executeStarknetTransaction,
+  fetchGraphQL,
+} from "../packages/core/src/core/providers";
+
+import { z } from "zod";
 
 /**
  * Helper function to get user input from CLI
@@ -81,37 +81,68 @@ async function main() {
   });
 
   // Initialize the main reasoning engine
-  const dreams = new ChainOfThought(llmClient, memory, {
-    worldState: ETERNUM_CONTEXT,
-  });
+  const dreams = new ChainOfThought(
+    llmClient,
+    memory,
+    {
+      worldState: ETERNUM_CONTEXT,
+    },
+    {
+      logLevel: LogLevel.DEBUG,
+    }
+  );
 
   // Register available actions
-  dreams.registerAction(
-    "EXECUTE_TRANSACTION",
-    starknetTransactionAction,
-    {
-      description: "Execute a transaction on the Starknet blockchain",
-      example: JSON.stringify({
-        contractAddress: "0x1234567890abcdef",
-        entrypoint: "execute",
-        calldata: [1, 2, 3],
-      }),
+  dreams.registerOutput({
+    name: "EXECUTE_TRANSACTION",
+    handler: async (data: any) => {
+      const result = await executeStarknetTransaction(data.payload);
+      return `Transaction executed successfully: ${JSON.stringify(
+        result,
+        null,
+        2
+      )}`;
     },
-    starknetTransactionSchema as JSONSchemaType<any>
-  );
+    schema: z
+      .object({
+        contractAddress: z
+          .string()
+          .describe(
+            "The address of the contract to execute the transaction on"
+          ),
+        entrypoint: z
+          .string()
+          .describe("The entrypoint to call on the contract"),
+        calldata: z
+          .array(z.union([z.number(), z.string()]))
+          .describe("The calldata to pass to the entrypoint"),
+      })
+      .describe(
+        "The payload to execute the transaction, never include slashes or comments"
+      ),
+  });
 
-  dreams.registerAction(
-    "GRAPHQL_FETCH",
-    graphqlAction,
-    {
-      description: "Fetch data from the Eternum GraphQL API",
-      example: JSON.stringify({
-        query:
-          "query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { entity_id level } } } }",
-      }),
+  dreams.registerOutput({
+    name: "GRAPHQL_FETCH",
+    handler: async (data: any) => {
+      const { query, variables } = data.payload ?? {};
+      const result = await fetchGraphQL(query, variables);
+      const resultStr = [
+        `query: ${query}`,
+        `result: ${JSON.stringify(result, null, 2)}`,
+      ].join("\n\n");
+      return `GraphQL data fetched successfully: ${resultStr}`;
     },
-    graphqlFetchSchema as JSONSchemaType<any>
-  );
+    schema: z
+      .object({
+        query: z.string()
+          .describe(`"query GetRealmInfo { eternumRealmModels(where: { realm_id: 42 }) { edges { node { ... on eternum_Realm { 
+          entity_id level } } } }"`),
+      })
+      .describe(
+        "The payload to fetch data from the Eternum GraphQL API, never include slashes or comments"
+      ),
+  });
 
   // Set up event logging
 

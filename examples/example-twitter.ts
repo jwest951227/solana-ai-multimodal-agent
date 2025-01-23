@@ -8,7 +8,7 @@
  */
 
 import { Core } from "../packages/core/src/core/core";
-import { tweetSchema, TwitterClient } from "../packages/core/src/io/twitter";
+import { TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { Processor } from "../packages/core/src/core/processor";
@@ -17,9 +17,7 @@ import { env } from "../packages/core/src/core/env";
 import { LogLevel } from "../packages/core/src/types";
 import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
-
 import { Consciousness } from "../packages/core/src/core/consciousness";
-import type { AnySchema, JSONSchemaType } from "ajv";
 import { z } from "zod";
 
 async function main() {
@@ -48,11 +46,9 @@ async function main() {
 
   // Initialize core system
   const core = new Core(roomManager, vectorDb, processor, {
-    logging: {
-      level: loglevel,
-      enableColors: true,
-      enableTimestamp: true,
-    },
+    level: loglevel,
+    enableColors: true,
+    enableTimestamp: true,
   });
 
   // Set up Twitter client with credentials

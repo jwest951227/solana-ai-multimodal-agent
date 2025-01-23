@@ -1,39 +1,4 @@
-export interface CharacterTrait {
-  name: string;
-  description: string;
-  strength: number; // 0-1, how strongly to express this trait
-  examples: string[];
-}
-
-export interface CharacterVoice {
-  tone: string;
-  style: string;
-  vocabulary: string[];
-  commonPhrases: string[];
-  emojis: string[];
-}
-
-export interface CharacterInstructions {
-  goals: string[];
-  constraints: string[];
-  topics: string[];
-  responseStyle: string[];
-  contextRules: string[];
-}
-
-export interface Character {
-  name: string;
-  bio: string;
-  traits: CharacterTrait[];
-  voice: CharacterVoice;
-  instructions: CharacterInstructions;
-  // Optional custom prompt templates
-  templates?: {
-    tweetTemplate?: string;
-    replyTemplate?: string;
-    thoughtTemplate?: string;
-  };
-}
+import type { Character } from "../types";
 
 // Example character configuration
 export const defaultCharacter: Character = {

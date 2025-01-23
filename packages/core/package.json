@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "bun run src/main.ts",
-    "test": "vitest"
+    "test": "vitest",
+    "build": "tsup --dts-resolve"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
@@ -22,6 +23,7 @@
     "chromadb-default-embed": "^2.13.2",
     "openai": "^4.76.0",
     "starknet": "^6.11.0",
+    "tsup": "^8.3.5",
     "uuid": "^11.0.3",
     "vitest": "^2.1.8",
     "zod": "^3.24.1",

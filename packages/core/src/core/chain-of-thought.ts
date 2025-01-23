@@ -1,13 +1,11 @@
 import type { LLMClient } from "./llm-client";
 import type {
-  ActionHandler,
   ChainOfThoughtContext,
   CoTAction,
   Goal,
   HorizonType,
   RefinedGoal,
 } from "../types";
-
 import { Logger } from "./logger";
 import { EventEmitter } from "events";
 import { GoalManager } from "./goal-manager";
@@ -20,12 +18,11 @@ import {
   getValidatedLLMResponse,
   injectTags,
 } from "./utils";
-import { systemPromptAction } from "./actions/system-prompt";
 import Ajv from "ajv";
 import type { VectorDB } from "./vector-db";
-
-import type { AnySchema, JSONSchemaType } from "ajv";
+import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
+import type { Output } from "../types";
 
 const ajv = new Ajv();
 
@@ -37,13 +34,7 @@ export class ChainOfThought extends EventEmitter {
   goalManager: GoalManager;
   public memory: VectorDB;
 
-  private actionRegistry = new Map<string, ActionHandler>();
-  private actionExamples = new Map<
-    string,
-    { description: string; example: string }
-  >();
-
-  private actionSchemas = new Map<string, JSONSchemaType<any>>();
+  private readonly outputs = new Map<string, Output>();
 
   constructor(
     private llmClient: LLMClient,
@@ -69,12 +60,6 @@ export class ChainOfThought extends EventEmitter {
       enableColors: true,
       enableTimestamp: true,
     });
-
-    this.llmClient.on("trace:tokens", (data) => {
-      this.emit("trace:tokens", data);
-    });
-
-    this.registerDefaultActions();
   }
 
   public async planStrategy(objective: string): Promise<void> {
@@ -245,8 +230,8 @@ export class ChainOfThought extends EventEmitter {
     possible: boolean;
     reason: string;
     missing_requirements: string[];
+    incompleteState?: boolean;
   }> {
-    console.log("canExecuteGoal: =================================", goal);
     const [relevantDocs, relevantExperiences, blackboardState] =
       await Promise.all([
         this.memory.findSimilarDocuments(goal.description, 5),
@@ -285,6 +270,8 @@ export class ChainOfThought extends EventEmitter {
       2. Are environmental conditions met?
       3. Are there any blocking conditions?
       4. Do we have the necessary game state requirements?
+
+      If you need to query then you could potentially complete the goal.
       
       </goal_execution_check>
     `;
@@ -295,6 +282,10 @@ export class ChainOfThought extends EventEmitter {
           possible: z.boolean(),
           reason: z.string(),
           missing_requirements: z.array(z.string()),
+          incompleteState: z
+            .boolean()
+            .optional()
+            .describe("If the goal is not possible due to incomplete state"),
         })
         .strict();
 
@@ -328,6 +319,7 @@ export class ChainOfThought extends EventEmitter {
         possible: false,
         reason: "Error checking goal executability",
         missing_requirements: [],
+        incompleteState: false,
       };
     }
   }
@@ -433,35 +425,46 @@ export class ChainOfThought extends EventEmitter {
       return;
     }
 
-    // Try goals in priority order until we find one we can execute
     for (const currentGoal of prioritizedGoals) {
-      const { possible, reason } = await this.canExecuteGoal(currentGoal);
+      const { possible, reason, incompleteState } = await this.canExecuteGoal(
+        currentGoal
+      );
 
+      // ------------------------------------------------------------------
+      // Decide how to handle "false" from canExecuteGoal
+      // ------------------------------------------------------------------
       if (!possible) {
-        this.logger.debug("executeNextGoal", "Goal cannot be executed", {
-          goalId: currentGoal.id,
-          reason,
-        });
-
-        // If it's a medium/long term goal, try to refine it
-        if (currentGoal.horizon !== "short") {
+        // If it's incomplete state and short-term,
+        // let's try it anyway.
+        if (incompleteState && currentGoal.horizon === "short") {
+          this.logger.warn(
+            "executeNextGoal",
+            `Requirements are incomplete for short-term goal "${currentGoal.description}". Attempting anyway...`,
+            { goalId: currentGoal.id, reason }
+          );
+        }
+        // If it's incomplete state but not short-term -> refine
+        else if (incompleteState && currentGoal.horizon !== "short") {
           this.logger.debug("executeNextGoal", "Attempting to refine goal", {
             goalId: currentGoal.id,
           });
           await this.refineGoal(currentGoal);
-          continue;
+          continue; // move on to the next goal
         }
-
-        // Mark as blocked and continue to next goal
-        this.goalManager.blockGoalHierarchy(currentGoal.id, reason);
-        this.emit("goal:blocked", {
-          id: currentGoal.id,
-          reason,
-        });
-        continue;
+        // Otherwise, block as usual
+        else {
+          this.goalManager.blockGoalHierarchy(currentGoal.id, reason);
+          this.emit("goal:blocked", {
+            id: currentGoal.id,
+            reason,
+          });
+          continue; // move on to the next goal
+        }
       }
 
-      // We found an executable goal
+      // ------------------------------------------------------------------
+      // If either possible=true or we decided to attempt with incomplete data:
+      // ------------------------------------------------------------------
       this.emit("goal:started", {
         id: currentGoal.id,
         description: currentGoal.description,
@@ -473,26 +476,21 @@ export class ChainOfThought extends EventEmitter {
 
         // Check success criteria
         const success = await this.validateGoalSuccess(currentGoal);
-
         if (success) {
           await this.handleGoalCompletion(currentGoal);
         } else {
-          // Instead of throwing error, block the goal and continue
-          const blockReason = `Goal validation failed: Success criteria not met for ${currentGoal.description}`;
+          const blockReason = `Goal validation failed: Success criteria not met for "${currentGoal.description}"`;
           this.goalManager.blockGoalHierarchy(currentGoal.id, blockReason);
           this.emit("goal:blocked", {
             id: currentGoal.id,
             reason: blockReason,
           });
-
-          // Try the next goal
           continue;
         }
 
         // Only execute one successful goal per call
         break;
       } catch (error) {
-        // Handle unexpected errors during execution
         this.logger.error(
           "executeNextGoal",
           "Unexpected error during goal execution",
@@ -501,10 +499,8 @@ export class ChainOfThought extends EventEmitter {
             error,
           }
         );
-
         await this.handleGoalFailure(currentGoal, error);
-
-        // Continue with next goal instead of throwing
+        // Go on to the next goal
         continue;
       }
     }
@@ -746,24 +742,28 @@ export class ChainOfThought extends EventEmitter {
     return this.snapshots;
   }
 
-  public registerAction(
-    type: string,
-    handler: ActionHandler,
-    example?: { description: string; example: string },
-    schema?: JSONSchemaType<any>
-  ): void {
-    this.logger.debug("registerAction", "Registering custom action", { type });
-    this.actionRegistry.set(type, handler);
+  public registerOutput(output: Output): void {
+    this.logger.debug("registerOutput", "Registering output", {
+      name: output.name,
+    });
+    this.outputs.set(output.name, output);
+  }
 
-    // Store the example snippet if provided
-    if (example) {
-      this.actionExamples.set(type, example);
-    }
-
-    if (schema) {
-      this.actionSchemas.set(type, schema);
+  /**
+   * Removes a registered output handler.
+   * @param name Name of the output to remove
+   */
+  public removeOutput(name: string): void {
+    if (this.outputs.has(name)) {
+      this.outputs.delete(name);
+      this.logger.debug("removeOutput", `Removed output: ${name}`);
     }
   }
+
+  // public registerAction(type: string, handler: ActionHandler): void {
+  //   this.logger.debug("registerAction", "Registering custom action", { type });
+  //   this.actionRegistry.set(type, handler);
+  // }
 
   /**
    * A central method to handle CoT actions that might be triggered by the LLM.
@@ -781,22 +781,22 @@ export class ChainOfThought extends EventEmitter {
     );
 
     try {
-      // Validate the result against the schema
-      if (this.actionSchemas.has(action.type)) {
-        const validate = ajv.compile(
-          this.actionSchemas.get(action.type) as AnySchema
-        );
-        if (!validate(action.payload)) {
-          return "Invalid action result - try schema validation again";
-        }
-      }
-
-      const handler = this.actionRegistry.get(action.type);
-      if (!handler) {
+      // Get the output handler and schema
+      const output = this.outputs.get(action.type);
+      if (!output) {
         return `No handler registered for action type "${action.type}" try again`;
       }
 
-      const result = await handler(action, this);
+      // Convert Zod schema to JSON schema
+      const jsonSchema = zodToJsonSchema(output.schema, action.type);
+      const validate = ajv.compile(jsonSchema);
+
+      // Validate the payload against the schema
+      if (!validate(action.payload)) {
+        return "Invalid action payload - schema validation failed";
+      }
+
+      const result = await output.handler(action);
 
       // Format the result for better readability
       const formattedResult =
@@ -820,13 +820,13 @@ export class ChainOfThought extends EventEmitter {
           ...(this.context.actionHistory || {}),
           [Date.now()]: {
             action,
-            result: formattedResult,
+            result: formattedResult || "",
           },
-        },
+        } as Record<number, { action: CoTAction; result: string }>,
       });
 
       this.emit("action:complete", { action, result: formattedResult });
-      return formattedResult;
+      return JSON.stringify(formattedResult);
     } catch (error) {
       // Update the action step with the error
       this.stepManager.updateStep(actionStep.id, {
@@ -860,10 +860,10 @@ export class ChainOfThought extends EventEmitter {
   /**
    * Returns a formatted string listing all available actions registered in the action registry
    */
-  private getAvailableActions(): string {
-    const actions = Array.from(this.actionRegistry.keys());
-    return `Available actions:\n${actions
-      .map((action) => `- ${action}`)
+  private getAvailableOutputs(): string {
+    const outputs = Array.from(this.outputs.keys());
+    return `Available outputs:\n${outputs
+      .map((output) => `- ${output}`)
       .join("\n")}`;
   }
 
@@ -872,16 +872,7 @@ export class ChainOfThought extends EventEmitter {
 
     const lastSteps = JSON.stringify(this.stepManager.getSteps());
 
-    const actionExamplesText = Array.from(this.actionExamples.entries())
-      .map(([type, { description, example }]) => {
-        return `
-Action Type: ${type}
-Description: ${description}
-Example JSON:
-${example}
-`;
-      })
-      .join("\n\n");
+    const availableOutputs = Array.from(this.outputs.entries());
 
     const prompt = `
     <global_context>
@@ -890,6 +881,8 @@ ${example}
     <GOAL>
     {{query}}
     </GOAL>
+
+
 
 You are a Chain of Thought reasoning system. Think through this problem step by step:
 
@@ -918,34 +911,41 @@ ${this.context.worldState}
 {{additional_context}}
 </CONTEXT_SUMMARY>
 
-<STEP_VALIDATION_RULES>
+## Step Validation Rules
 1. Each step must have a clear, measurable outcome
 2. Maximum 10 steps per sequence
 3. Steps must be non-redundant unless explicitly required
 4. All dynamic values (marked with <>) must be replaced with actual values
 5. Use queries for information gathering, transactions for actions only
 {{custom_validation_rules}}
-</STEP_VALIDATION_RULES>
 
-<REQUIRED_VALIDATIONS>
+
+## Required Validations
 1. Resource costs must be verified before action execution
 2. Building requirements must be confirmed before construction
 3. Entity existence must be validated before interaction
 4. If the required amounts are not available, end the sequence.
 {{additional_validations}}
-</REQUIRED_VALIDATIONS>
 
-<OUTPUT_FORMAT>
+
+## Output Format
 Return a JSON array where each step contains:
 - plan: A short explanation of what you will do
 - meta: A metadata object with requirements for the step. Find this in the context.
-- actions: A list of actions to be executed. You can either use ${this.getAvailableActions()}. You must only use these.
+- actions: A list of actions to be executed. You can either use ${this.getAvailableOutputs()}
 
 <AVAILABLE_ACTIONS>
 Below is a list of actions you may use. For each action, 
-the "payload" must follow the indicated structure exactly.
+the "payload" must follow the indicated structure exactly. Do not include any markdown formatting, slashes or comments.
 
-${actionExamplesText}
+${availableOutputs
+  .map(
+    ([name, output]) => `${name}:
+    ${JSON.stringify(zodToJsonSchema(output.schema, name), null, 2)}
+  `
+  )
+  .join("\n\n")}
+
 </AVAILABLE_ACTIONS>
 
 </global_context>
@@ -1265,10 +1265,6 @@ ${actionExamplesText}
         error,
       });
     }
-  }
-
-  private registerDefaultActions() {
-    this.actionRegistry.set("SYSTEM_PROMPT", systemPromptAction);
   }
 
   private async updateBlackboard(update: {
