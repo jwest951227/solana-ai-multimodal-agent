@@ -1,19 +1,6 @@
 import type { z } from "zod";
-import type { Documentation } from "../core/vector-db";
-import type { EpisodicMemory } from "../core/vector-db";
 import type { LLMClient } from "../core/llm-client";
 import type { Logger } from "../core/logger";
-
-/**
- * Represents a single "step" in the Chain of Thought.
- */
-export interface CoTStep {
-  id: string;
-  content: string;
-  timestamp: number;
-  tags?: string[];
-  meta?: Record<string, any>;
-}
 
 /**
  * ChainOfThoughtContext can hold any relevant data
@@ -34,22 +21,11 @@ export interface ChainOfThoughtContext {
 }
 
 /**
- * Different action types the CoT might execute.
- * You can expand or modify as needed.
- */
-//  TODO: deprecate
-export type CoTActionType =
-  | "GRAPHQL_FETCH"
-  | "EXECUTE_TRANSACTION"
-  | "READ_CONTRACT"
-  | "SYSTEM_PROMPT";
-
-/**
  * Data necessary for a particular action type.
  * Extend this to fit your actual logic.
  */
 export interface CoTAction {
-  type: CoTActionType;
+  type: string;
   payload: Record<string, any>;
 }
 
@@ -62,12 +38,6 @@ export interface LLMStructuredResponse {
     };
   };
   actions: CoTAction[];
-}
-
-export interface CoTTransaction {
-  contractAddress: string;
-  entrypoint: string;
-  calldata: any[];
 }
 
 export interface SearchResult {
@@ -100,12 +70,6 @@ export interface LogEntry {
   message: string;
   data?: any;
 }
-
-export type ActionHandler = (
-  action: CoTAction,
-  chain: ChainOfThought,
-  example?: { description: string; example: string }
-) => Promise<string>;
 
 export type StepType = "action" | "planning" | "system" | "task";
 
@@ -253,18 +217,6 @@ export interface ChainOfThoughtEvents {
   "trace:tokens": (data: { input: number; output: number }) => void;
 }
 
-// Add type safety to event emitter
-export declare interface ChainOfThought {
-  on<K extends keyof ChainOfThoughtEvents>(
-    event: K,
-    listener: ChainOfThoughtEvents[K]
-  ): this;
-  emit<K extends keyof ChainOfThoughtEvents>(
-    event: K,
-    ...args: Parameters<ChainOfThoughtEvents[K]>
-  ): boolean;
-}
-
 export interface RefinedGoal {
   description: string;
   success_criteria: string[];
@@ -281,4 +233,293 @@ export interface LLMValidationOptions<T> {
   onRetry?: (error: Error, attempt: number) => void;
   llmClient: LLMClient;
   logger: Logger;
+}
+
+export interface CharacterTrait {
+  name: string;
+  description: string;
+  strength: number; // 0-1, how strongly to express this trait
+  examples: string[];
+}
+
+export interface CharacterVoice {
+  tone: string;
+  style: string;
+  vocabulary: string[];
+  commonPhrases: string[];
+  emojis: string[];
+}
+
+export interface CharacterInstructions {
+  goals: string[];
+  constraints: string[];
+  topics: string[];
+  responseStyle: string[];
+  contextRules: string[];
+}
+
+export interface Character {
+  name: string;
+  bio: string;
+  traits: CharacterTrait[];
+  voice: CharacterVoice;
+  instructions: CharacterInstructions;
+  // Optional custom prompt templates
+  templates?: {
+    tweetTemplate?: string;
+    replyTemplate?: string;
+    thoughtTemplate?: string;
+  };
+}
+
+export interface ProcessedResult {
+  content: any;
+  metadata: Record<string, any>;
+  enrichedContext: EnrichedContext;
+  suggestedOutputs: SuggestedOutput<any>[];
+  isOutputSuccess?: boolean;
+  alreadyProcessed?: boolean;
+}
+
+export interface SuggestedOutput<T> {
+  name: string;
+  data: T;
+  confidence: number;
+  reasoning: string;
+}
+
+export interface EnrichedContext {
+  timeContext: string;
+  summary: string;
+  topics: string[];
+  relatedMemories: string[];
+  sentiment?: string;
+  entities?: string[];
+  intent?: string;
+  similarMessages?: any[];
+  metadata?: Record<string, any>;
+  availableOutputs?: string[]; // Names of available outputs
+}
+
+export interface EnrichedContent {
+  originalContent: string;
+  timestamp: Date;
+  context: EnrichedContext;
+}
+
+export interface Thought {
+  content: string;
+  confidence: number;
+  context?: Record<string, any>;
+  timestamp: Date;
+  type: string;
+  source: string;
+  metadata?: Record<string, any>;
+  roomId?: string;
+}
+
+export type ThoughtType =
+  | "social_share" // For tweets, posts, etc.
+  | "research" // For diving deeper into topics
+  | "analysis" // For analyzing patterns or data
+  | "alert" // For important notifications
+  | "inquiry"; // For asking questions or seeking information
+
+export interface ThoughtTemplate {
+  type: ThoughtType;
+  description: string;
+  prompt: string;
+  temperature: number;
+  responseFormat: {
+    thought: string;
+    confidence: number;
+    reasoning: string;
+    context: Record<string, any>;
+    suggestedActions: Array<{
+      type: string;
+      platform?: string;
+      priority: number;
+      parameters?: Record<string, any>;
+    }>;
+  };
+}
+
+/**
+ * Interface for defining input handlers that can be registered with the Core system.
+ * @template T The type of data returned by the input handler
+ */
+export interface Input<T = unknown> {
+  /** Unique identifier for this input */
+  name: string;
+  /** Handler function that processes the input and returns a Promise of type T */
+  handler: (...args: unknown[]) => Promise<T>;
+  /** Zod schema for validating the response */
+  response: z.ZodType<T>;
+
+  /**
+   * Optional interval in milliseconds for recurring inputs.
+   * If set, the input will run repeatedly at this interval.
+   * @example
+   * ```ts
+   * // Run every minute
+   * interval: 60000
+   * ```
+   */
+  interval?: number;
+
+  /**
+   * Optional timestamp for when this input should next run.
+   * If omitted, defaults to immediate execution (Date.now()).
+   */
+  nextRun?: number;
+}
+
+/**
+ * Interface for defining output handlers that can be registered with the Core system.
+ * @template T The type of data the output handler accepts
+ */
+export interface Output<T = unknown> {
+  /** Unique identifier for this output */
+  name: string;
+  /** Handler function that processes the output data */
+  handler: (data: T) => Promise<unknown>;
+  /** Zod schema for validating the input data */
+  schema: z.ZodType<T>;
+}
+
+export interface RoomMetadata {
+  name: string;
+  description?: string;
+  participants: string[];
+  createdAt: Date;
+  lastActive: Date;
+  metadata?: Record<string, any>;
+}
+
+export interface Memory {
+  id: string;
+  roomId: string;
+  content: string;
+  timestamp: Date;
+  metadata?: Record<string, any>;
+  embedding?: number[];
+}
+
+export interface VectorDB {
+  findSimilar(
+    content: string,
+    limit?: number,
+    metadata?: Record<string, any>
+  ): Promise<SearchResult[]>;
+
+  store(content: string, metadata?: Record<string, any>): Promise<void>;
+
+  delete(id: string): Promise<void>;
+
+  storeInRoom(
+    content: string,
+    roomId: string,
+    metadata?: Record<string, any>
+  ): Promise<void>;
+
+  findSimilarInRoom(
+    content: string,
+    roomId: string,
+    limit?: number,
+    metadata?: Record<string, any>
+  ): Promise<SearchResult[]>;
+
+  storeSystemMetadata(key: string, value: Record<string, any>): Promise<void>;
+  getSystemMetadata(key: string): Promise<Record<string, any> | null>;
+
+  storeEpisode(memory: Omit<EpisodicMemory, "id">): Promise<string>;
+  findSimilarEpisodes(
+    action: string,
+    limit?: number
+  ): Promise<EpisodicMemory[]>;
+  getRecentEpisodes(limit?: number): Promise<EpisodicMemory[]>;
+
+  storeDocument(doc: Omit<Documentation, "id">): Promise<string>;
+  findSimilarDocuments(query: string, limit?: number): Promise<Documentation[]>;
+  searchDocumentsByTag(
+    tags: string[],
+    limit?: number
+  ): Promise<Documentation[]>;
+  updateDocument(id: string, updates: Partial<Documentation>): Promise<void>;
+
+  purge(): Promise<void>;
+}
+
+export interface EpisodicMemory {
+  id: string;
+  timestamp: Date;
+  action: string;
+  outcome: string;
+  context?: Record<string, any>;
+  emotions?: string[];
+  importance?: number;
+}
+
+export interface Documentation {
+  id: string;
+  title: string;
+  content: string;
+  category: string;
+  tags: string[];
+  lastUpdated: Date;
+  source?: string;
+  relatedIds?: string[];
+}
+
+export interface Cluster {
+  id: string;
+  name: string;
+  description: string;
+  centroid?: number[];
+  topics: string[];
+  documentCount: number;
+  lastUpdated: Date;
+}
+
+export interface ClusterMetadata {
+  clusterId: string;
+  confidence: number;
+  topics: string[];
+}
+
+export interface ClusterStats {
+  variance: number;
+  memberCount: number;
+  averageDistance: number;
+}
+
+export interface ClusterUpdate {
+  newCentroid?: number[];
+  documentCount: number;
+  topics: string[];
+  variance?: number;
+}
+
+export interface DocumentClusterMetadata extends ClusterMetadata {
+  category: string;
+  commonTags: string[];
+}
+
+export interface EpisodeClusterMetadata extends ClusterMetadata {
+  commonEmotions: string[];
+  averageImportance: number;
+}
+
+export interface HierarchicalCluster extends Cluster {
+  parentId?: string;
+  childIds: string[];
+  level: number;
+  domain: string;
+  subDomain?: string;
+}
+
+export interface DomainMetadata {
+  domain: string;
+  subDomain?: string;
+  confidence: number;
 }

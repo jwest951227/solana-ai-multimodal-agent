@@ -125,7 +125,7 @@ export const calculateImportance = (result: string): number => {
   return Math.min(termScore + complexityScore, 1);
 };
 
-export const getValidatedLLMResponse = async <T>({
+export const validateLLMResponseSchema = async <T>({
   prompt,
   systemPrompt,
   schema,
@@ -144,9 +144,11 @@ export const getValidatedLLMResponse = async <T>({
     ${prompt}
 
     <response_structure>
-    Return a JSON object matching this schema. Do not include any markdown formatting.
+    Return a JSON object matching this schema. Do not include any markdown formatting, slashes or comments.
 
     ${JSON.stringify(jsonSchema, null, 2)}
+
+    Do not include any markdown formatting, slashes or comments.
     </response_structure>
   `;
 
@@ -166,7 +168,7 @@ export const getValidatedLLMResponse = async <T>({
         parsed = JSON.parse(responseText);
       } catch (parseError) {
         logger.error(
-          "getValidatedLLMResponse",
+          "validateLLMResponseSchema",
           "Failed to parse LLM response as JSON",
           {
             response: responseText,
@@ -180,7 +182,7 @@ export const getValidatedLLMResponse = async <T>({
 
       if (!validate(parsed)) {
         logger.error(
-          "getValidatedLLMResponse",
+          "validateLLMResponseSchema",
           "Response failed schema validation",
           {
             errors: validate.errors,
@@ -200,7 +202,7 @@ export const getValidatedLLMResponse = async <T>({
       return parsed;
     } catch (error) {
       logger.error(
-        "getValidatedLLMResponse",
+        "validateLLMResponseSchema",
         `Attempt ${attempts + 1} failed`,
         { error }
       );
@@ -217,3 +219,23 @@ export const getValidatedLLMResponse = async <T>({
 
   throw new Error("Maximum retries exceeded");
 };
+
+export function isValidDateValue(
+  value: unknown
+): value is string | number | Date {
+  return (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    value instanceof Date
+  );
+}
+
+export function hashString(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return Math.abs(hash).toString(36); // Convert to base36 for shorter strings
+}
