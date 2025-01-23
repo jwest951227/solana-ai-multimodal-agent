@@ -13,38 +13,9 @@ import type {
 } from "../types";
 import { LogLevel } from "../types";
 
-import { validateLLMResponseSchema } from "./utils";
+import { hashString, validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-
-// Type guard for VectorDB with room methods
-interface VectorDBWithRooms extends VectorDB {
-  storeInRoom: (
-    content: string,
-    roomId: string,
-    metadata?: Record<string, any>
-  ) => Promise<void>;
-  findSimilarInRoom: (
-    content: string,
-    roomId: string,
-    limit?: number,
-    metadata?: Record<string, any>
-  ) => Promise<SearchResult[]>;
-}
-
-function hasRoomSupport(vectorDb: VectorDB): vectorDb is VectorDBWithRooms {
-  return "storeInRoom" in vectorDb && "findSimilarInRoom" in vectorDb;
-}
-
-function hashString(str: string): string {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash).toString(36); // Convert to base36 for shorter strings
-}
 
 export class Processor {
   private logger: Logger;
@@ -172,16 +143,17 @@ If this is feedback from a previous output:
 ${availableOutputs
   .map(
     ([name, output]) => `${name}:
-   ${JSON.stringify(zodToJsonSchema(output.schema, "mySchema"), null, 2)}
+   ${JSON.stringify(zodToJsonSchema(output.schema, name), null, 2)}
   `
   )
   .join("\n\n")}
 
-If the output is for a message user the personality of the character to determine if the output was successful.
+If the output is for a message, use the personality of the character to determine if the output was successful.
 
 ${JSON.stringify(this.character, null, 2)}
 
 Based on the content and context, determine which outputs should be triggered.
+
 For each appropriate output, provide:
 1. The output name
 2. The data that matches the output's schema
@@ -272,9 +244,11 @@ For each appropriate output, provide:
       typeof content === "string" ? content : JSON.stringify(content);
 
     // Get related memories if supported
-    const relatedMemories = hasRoomSupport(this.vectorDb)
-      ? await this.vectorDb.findSimilarInRoom(contentStr, room.id, 3)
-      : [];
+    const relatedMemories = await this.vectorDb.findSimilarInRoom(
+      contentStr,
+      room.id,
+      3
+    );
 
     const prompt = `Analyze the following content and provide enrichment:
 
@@ -454,10 +428,6 @@ Return a JSON object with the following fields:
     contentId: string,
     room: Room
   ): Promise<boolean> {
-    if (!hasRoomSupport(this.vectorDb)) {
-      return false;
-    }
-
     // Create a marker string that includes the content ID
     const markerContent = `processed_content:${contentId}`;
 
@@ -481,10 +451,6 @@ Return a JSON object with the following fields:
     contentId: string,
     room: Room
   ): Promise<void> {
-    if (!hasRoomSupport(this.vectorDb)) {
-      return;
-    }
-
     // Create a marker string that includes the content ID
     const markerContent = `processed_content:${contentId}`;
 

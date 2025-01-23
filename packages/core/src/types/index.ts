@@ -416,13 +416,13 @@ export interface VectorDB {
 
   delete(id: string): Promise<void>;
 
-  storeInRoom?(
+  storeInRoom(
     content: string,
     roomId: string,
     metadata?: Record<string, any>
   ): Promise<void>;
 
-  findSimilarInRoom?(
+  findSimilarInRoom(
     content: string,
     roomId: string,
     limit?: number,
