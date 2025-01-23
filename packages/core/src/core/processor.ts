@@ -202,6 +202,7 @@ Please analyze the content and determine:
 1. Content Type
 - Identify if this is data, a message, an event, or another type
 - Consider the structure and format
+- Consider if you should respond to the content
 
 2. Processing Requirements  
 - Determine what kind of processing would be most appropriate

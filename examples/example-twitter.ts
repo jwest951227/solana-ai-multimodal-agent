@@ -79,8 +79,6 @@ async function main() {
       const mentionsInput = twitter.createMentionsInput(60000);
       const mentions = await mentionsInput.handler();
 
-      console.log("mentions", mentions);
-
       // If no new mentions, return null to skip processing
       if (!mentions || mentions.length === 0) {
         return null;
@@ -130,11 +128,15 @@ async function main() {
         content: thoughtData.content,
       });
     },
-    schema: z.object({
-      content: z
-        .string()
-        .regex(/^[\x20-\x7E]*$/, "No emojis or non-ASCII characters allowed"),
-    }),
+    schema: z
+      .object({
+        content: z
+          .string()
+          .regex(/^[\x20-\x7E]*$/, "No emojis or non-ASCII characters allowed"),
+      })
+      .describe(
+        "This is the content of the tweet you are posting. It should be a string of text that is 280 characters or less. Use this to post a tweet on the timeline."
+      ),
   });
 
   // Register output handler for Twitter replies
@@ -146,13 +148,17 @@ async function main() {
 
       return twitter.createTweetOutput().handler(tweetData);
     },
-    schema: z.object({
-      content: z.string(),
-      inReplyTo: z
-        .string()
-        .optional()
-        .describe("The tweet ID to reply to, if any"),
-    }),
+    schema: z
+      .object({
+        content: z.string(),
+        inReplyTo: z
+          .string()
+          .optional()
+          .describe("The tweet ID to reply to, if any"),
+      })
+      .describe(
+        "If you have been tagged or mentioned in the tweet, use this. This is for replying to tweets."
+      ),
   });
 
   // Start monitoring
