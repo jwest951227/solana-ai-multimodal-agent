@@ -130,7 +130,11 @@ async function main() {
     name: "GRAPHQL_FETCH",
     handler: async (data: any) => {
       const { query, variables } = data.payload ?? {};
-      const result = await fetchGraphQL(query, variables);
+      const result = await fetchGraphQL(
+        env.GRAPHQL_URL + "/graphql",
+        query,
+        variables
+      );
       const resultStr = [
         `query: ${query}`,
         `result: ${JSON.stringify(result, null, 2)}`,
