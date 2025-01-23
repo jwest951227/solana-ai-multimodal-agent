@@ -144,11 +144,17 @@ export const validateLLMResponseSchema = async <T>({
     ${prompt}
 
     <response_structure>
-    Return a JSON object matching this schema. Do not include any markdown formatting, slashes or comments.
+
+    # rules
+    - Only include the correct schema nothing else.
+    - Return a JSON object exactly matching this schema. 
+    - Do not include any markdown formatting, slashes or comments.
+    - return no <thinking> tags.
+    - Only return the JSON object, no other text or other values.
+    - Never return the schema wrapped in another value like 'outputs' etc.
 
     ${JSON.stringify(jsonSchema, null, 2)}
 
-    Do not include any markdown formatting, slashes or comments.
     </response_structure>
   `;
 
@@ -158,10 +164,7 @@ export const validateLLMResponseSchema = async <T>({
         system: systemPrompt,
       });
 
-      let responseText = response.toString();
-
-      // Remove markdown code block formatting if present
-      responseText = responseText.replace(/```json\n?|\n?```/g, "");
+      let responseText = response.toString().replace(/```json\n?|\n?```/g, "");
 
       let parsed: T;
       try {

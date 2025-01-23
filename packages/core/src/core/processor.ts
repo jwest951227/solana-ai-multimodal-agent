@@ -6,7 +6,6 @@ import type { VectorDB } from "../types";
 import type {
   Character,
   EnrichedContent,
-  Output,
   ProcessedResult,
   SearchResult,
   SuggestedOutput,
@@ -16,10 +15,11 @@ import { LogLevel } from "../types";
 import { hashString, validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import type { IOHandler } from "./orchestrator";
 
 export class Processor {
   private logger: Logger;
-  private availableOutputs: Map<string, Output> = new Map();
+  private readonly ioHandlers = new Map<string, IOHandler>();
 
   constructor(
     private vectorDb: VectorDB,
@@ -34,8 +34,8 @@ export class Processor {
     });
   }
 
-  public registerAvailableOutput(output: Output): void {
-    this.availableOutputs.set(output.name, output);
+  public registerIOHandler(handler: IOHandler): void {
+    this.ioHandlers.set(handler.name, handler);
   }
 
   async process(content: any, room: Room): Promise<ProcessedResult> {
@@ -81,12 +81,8 @@ export class Processor {
     // First, classify the content
     const contentClassification = await this.classifyContent(content);
 
-    console.log("contentClassification", contentClassification);
-
     // Second, enrich content
     const enrichedContent = await this.enrichContent(content, room, new Date());
-
-    console.log("enrichedContent", enrichedContent);
 
     // Third, determine potential outputs
     const suggestedOutputs = await this.determinePotentialOutputs(
@@ -95,14 +91,11 @@ export class Processor {
       contentClassification
     );
 
-    console.log("suggestedOutputs", suggestedOutputs);
-
     this.logger.info("Processor.process", "Suggested outputs", {
       contentId,
       suggestedOutputs,
     });
 
-    // Store that we've processed this content
     await this.markContentAsProcessed(contentId, room);
 
     return {
@@ -113,7 +106,7 @@ export class Processor {
       },
       enrichedContext: {
         ...enrichedContent.context,
-        availableOutputs: Array.from(this.availableOutputs.keys()),
+        availableOutputs: Array.from(this.ioHandlers.keys()),
       },
       suggestedOutputs,
       alreadyProcessed: false,
@@ -125,7 +118,7 @@ export class Processor {
     enrichedContent: EnrichedContent,
     classification: { contentType: string; context: Record<string, any> }
   ): Promise<SuggestedOutput<any>[]> {
-    const availableOutputs = Array.from(this.availableOutputs.entries());
+    const availableOutputs = Array.from(this.ioHandlers.entries());
 
     if (availableOutputs.length === 0) return [];
 
@@ -166,6 +159,7 @@ For each appropriate output, provide:
 3. A confidence score (0-1)
 4. Reasoning for the suggestion
 
+Only return the JSON object, no other text.
 `;
 
     try {
@@ -196,23 +190,37 @@ For each appropriate output, provide:
     contentType: string;
     context: Record<string, any>;
   }> {
-    const contentStr =
-      typeof content === "string" ? content : JSON.stringify(content);
+    const prompt = `
+    # Content Classification Task
 
-    const prompt = `Classify the following content and provide context:
+## Input Content
+"${typeof content === "string" ? content : JSON.stringify(content)}"
 
-    # Content: "${contentStr}"
+## Classification Requirements
+Please analyze the content and determine:
 
-    # Determine
-    1. What type of content this is (data, message, event, etc.)
-    2. What kind of processing it requires
-    3. Any relevant context
-  
+1. Content Type
+- Identify if this is data, a message, an event, or another type
+- Consider the structure and format
+
+2. Processing Requirements  
+- Determine what kind of processing would be most appropriate
+- Consider if any special handling is needed
+
+3. Contextual Analysis
+- Extract any relevant context that would aid in processing
+- Note any patterns or special characteristics
+
+## Output Format
+Provide a structured classification with clear reasoning for each determination.
+
+Only return the JSON object, no other text.
 `;
 
-    const classification = await validateLLMResponseSchema({
+    return await validateLLMResponseSchema({
       prompt,
-      systemPrompt: "You are an expert content classifier.",
+      systemPrompt:
+        "You are an expert content classifier with deep experience analyzing and categorizing different types of data. Your role is to carefully examine the provided content and determine its key characteristics.",
       schema: z.object({
         contentType: z.string(),
         requiresProcessing: z.boolean(),
@@ -225,22 +233,6 @@ For each appropriate output, provide:
       llmClient: this.llmClient,
       logger: this.logger,
     });
-
-    console.log("classification", classification);
-
-    return typeof classification === "string"
-      ? JSON.parse(this.stripCodeBlock(classification))
-      : classification;
-  }
-
-  private stripCodeBlock(text: string): string {
-    text = text
-      .replace(/^```[\w]*\n/, "")
-      .replace(/\n```$/, "")
-      .trim();
-
-    const jsonMatch = text.match(/\{[\s\S]*?\}/);
-    return jsonMatch ? jsonMatch[0] : text;
   }
 
   private async enrichContent<T>(

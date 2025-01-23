@@ -21,7 +21,7 @@ import { Consciousness } from "../packages/core/src/core/consciousness";
 import { z } from "zod";
 
 async function main() {
-  const loglevel = LogLevel.DEBUG;
+  const loglevel = LogLevel.INFO;
   // Initialize core dependencies
   const vectorDb = new ChromaVectorDB("twitter_agent", {
     chromaUrl: "http://localhost:8000",
@@ -33,9 +33,8 @@ async function main() {
   const roomManager = new RoomManager(vectorDb);
 
   const llmClient = new LLMClient({
-    model: "openai/gpt-4-turbo-preview", // Using OpenAI's GPT-4 Turbo
-    temperature: 0.7, // Slightly more creative
-    maxTokens: 4096, // Increased context window
+    model: "anthropic/claude-3-5-sonnet-latest", // Using a known supported model
+    temperature: 0.3,
   });
 
   // Initialize processor with default character personality
@@ -71,8 +70,9 @@ async function main() {
   });
 
   // Register input handler for Twitter mentions
-  core.subscribeToInputSource({
+  core.registerIOHandler({
     name: "twitter_mentions",
+    role: "input",
     handler: async () => {
       console.log(chalk.blue("🔍 Checking Twitter mentions..."));
       // Create a static mentions input handler
@@ -86,7 +86,7 @@ async function main() {
 
       return mentions;
     },
-    response: z.object({
+    schema: z.object({
       type: z.string(),
       content: z.string(),
       metadata: z.record(z.any()),
@@ -95,8 +95,9 @@ async function main() {
   });
 
   // Register input handler for autonomous thoughts
-  core.subscribeToInputSource({
+  core.registerIOHandler({
     name: "consciousness_thoughts",
+    role: "input",
     handler: async () => {
       console.log(chalk.blue("🧠 Generating thoughts..."));
       const thought = await consciousness.start();
@@ -108,7 +109,7 @@ async function main() {
 
       return thought;
     },
-    response: z.object({
+    schema: z.object({
       type: z.string(),
       content: z.string(),
       metadata: z.record(z.any()),
@@ -117,10 +118,12 @@ async function main() {
   });
 
   // Register output handler for posting thoughts to Twitter
-  core.registerOutput({
+  core.registerIOHandler({
     name: "twitter_thought",
+    role: "output",
     handler: async (data: unknown) => {
       const thoughtData = data as { content: string };
+
       return twitter.createTweetOutput().handler({
         content: thoughtData.content,
       });
@@ -133,10 +136,12 @@ async function main() {
   });
 
   // Register output handler for Twitter replies
-  core.registerOutput({
+  core.registerIOHandler({
     name: "twitter_reply",
+    role: "output",
     handler: async (data: unknown) => {
       const tweetData = data as { content: string; inReplyTo: string };
+
       return twitter.createTweetOutput().handler(tweetData);
     },
     schema: z.object({

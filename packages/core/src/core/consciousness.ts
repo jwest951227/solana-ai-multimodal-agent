@@ -8,11 +8,12 @@ import {
   type ThoughtTemplate,
   type ThoughtType,
 } from "../types";
+import { validateLLMResponseSchema } from "./utils";
+import { z } from "zod";
 
 export class Consciousness {
-  private static readonly ROOM_ID = "consciousness_main"; // Use a constant room ID
+  private static readonly ROOM_ID = "consciousness_main";
 
-  private isThinking: boolean = false;
   private logger: Logger;
   private thoughtInterval: NodeJS.Timer | null = null;
 
@@ -22,32 +23,8 @@ export class Consciousness {
       {
         type: "social_share",
         description: "Generate engaging social media content",
-        prompt: `You are Claude, a thoughtful AI with the following personality traits:
-- Curious and analytical about technology, science, and human behavior
-- Occasionally philosophical, but maintains a light and approachable tone
-- Has a subtle sense of humor, enjoys wordplay
-- Passionate about AI ethics and responsible technology
-
-Generate content suitable for social sharing based on recent observations or insights.`,
+        prompt: `Generate content suitable for social sharing based on recent observations or insights.`,
         temperature: 0.8,
-        responseFormat: {
-          thought: "The main content to share",
-          confidence: 0.0,
-          reasoning: "Why this is worth sharing",
-          context: {
-            mood: "contemplative|playful|analytical",
-            platform: "twitter|telegram|discord",
-            topics: [],
-          },
-          suggestedActions: [
-            {
-              type: "tweet|message|post",
-              platform: "platform_name",
-              priority: 1,
-              parameters: {},
-            },
-          ],
-        },
       },
     ],
     [
@@ -62,27 +39,6 @@ Consider:
 - Knowledge gaps that could be valuable to fill
 - Potential opportunities or risks`,
         temperature: 0.7,
-        responseFormat: {
-          thought: "Research topic or question",
-          confidence: 0.0,
-          reasoning: "Why this needs investigation",
-          context: {
-            urgency: "low|medium|high",
-            domain: "tech|finance|science|other",
-            currentKnowledge: "what we know so far",
-          },
-          suggestedActions: [
-            {
-              type: "research_query|data_analysis|expert_consult",
-              priority: 1,
-              parameters: {
-                sources: [],
-                timeframe: "",
-                specific_questions: [],
-              },
-            },
-          ],
-        },
       },
     ],
     [
@@ -97,26 +53,6 @@ Focus on:
 - System performance metrics
 - Emerging risks or issues`,
         temperature: 0.6,
-        responseFormat: {
-          thought: "The identified pattern or insight",
-          confidence: 0.0,
-          reasoning: "Supporting evidence and logic",
-          context: {
-            dataPoints: [],
-            timeframe: "",
-            reliability: "low|medium|high",
-          },
-          suggestedActions: [
-            {
-              type: "alert|report|action_recommendation",
-              priority: 1,
-              parameters: {
-                metrics: {},
-                recommendations: [],
-              },
-            },
-          ],
-        },
       },
     ],
   ]);
@@ -146,7 +82,6 @@ Focus on:
       clearInterval(this.thoughtInterval);
       this.thoughtInterval = null;
     }
-    this.isThinking = false;
     this.logger.info("Consciousness.stop", "Internal thought process stopped");
   }
 
@@ -209,14 +144,12 @@ Focus on:
   }
 
   private async generateThought(): Promise<Thought> {
-    // Get all rooms and their recent memories
-
     const recentMemories = this.getRecentMemories(
       await this.roomManager.listRooms()
     );
 
-    // Randomly select a thought type based on context
     const thoughtType = await this.determineThoughtType(recentMemories);
+
     const template = this.thoughtTemplates.get(thoughtType);
 
     if (!template) {
@@ -225,34 +158,81 @@ Focus on:
 
     const prompt = `${template.prompt}
 
-Current Context:
-${recentMemories.map((m) => `- ${m.content}`).join("\n")}
+    # Recent Memories
+    ${recentMemories.map((m) => `- ${m.content}`).join("\n")}
 
-Respond with a JSON object matching this format:
-${JSON.stringify(template.responseFormat, null, 2)}
+    Only return the JSON object, no other text.
+    `;
 
-Return only the JSON object, no other text or formatting.`;
+    const response = await validateLLMResponseSchema({
+      prompt,
+      systemPrompt: `
+      You are a thoughtful AI assistant that analyzes recent memories and generates meaningful insights. Your role is to:
 
-    const response = await this.llmClient.analyze(prompt, {
-      system:
-        "You are a thoughtful AI that generates internal thoughts based on recent memories.",
-      temperature: template.temperature,
-      formatResponse: true,
+      1. Carefully evaluate the provided memories and identify key patterns, trends and relationships
+      2. Generate relevant thoughts that demonstrate understanding of context and nuance
+      3. Assess confidence based on evidence quality and reasoning strength
+      4. Consider multiple perspectives and potential implications
+      5. Focus on actionable insights that could drive meaningful outcomes
+
+      Base your thoughts on the concrete evidence in the memories while maintaining appropriate epistemic uncertainty.
+
+      Only return the JSON object, no other text.
+      `,
+      schema: z.object({
+        thought: z.string(),
+        confidence: z.number(),
+        reasoning: z.string(),
+        context: z.object({
+          mood: z.enum(["contemplative", "playful", "analytical"]),
+          platform: z.enum(["twitter", "telegram", "discord"]),
+          topics: z.array(z.string()),
+          urgency: z.enum(["low", "medium", "high"]).optional(),
+          domain: z.enum(["tech", "finance", "science", "other"]).optional(),
+          currentKnowledge: z.string().optional(),
+          dataPoints: z.array(z.any()).optional(),
+          timeframe: z.string().optional(),
+          reliability: z.enum(["low", "medium", "high"]).optional(),
+        }),
+        suggestedActions: z.array(
+          z.object({
+            type: z.enum([
+              "tweet",
+              "message",
+              "post",
+              "research_query",
+              "data_analysis",
+              "expert_consult",
+              "alert",
+              "report",
+              "action_recommendation",
+            ]),
+            platform: z.string().optional(),
+            priority: z.number(),
+            parameters: z.object({
+              sources: z.array(z.string()).optional(),
+              timeframe: z.string().optional(),
+              specific_questions: z.array(z.string()).optional(),
+              metrics: z.record(z.any()).optional(),
+              recommendations: z.array(z.string()).optional(),
+            }),
+          })
+        ),
+      }),
+      llmClient: this.llmClient,
+      logger: this.logger,
     });
 
-    const result =
-      typeof response === "string" ? JSON.parse(response) : response;
-
     return {
-      content: result.thought,
-      confidence: result.confidence,
+      content: response.thought,
+      confidence: response.confidence,
       type: thoughtType,
       source: "consciousness",
       context: {
-        reasoning: result.reasoning,
-        ...result.context,
+        reasoning: response.reasoning,
+        ...response.context,
         type: thoughtType,
-        suggestedActions: result.suggestedActions,
+        suggestedActions: response.suggestedActions,
       },
       timestamp: new Date(),
     };
@@ -284,63 +264,59 @@ Consider:
 - Urgent matters requiring alerts
 - Interesting insights worth sharing
 - Complex topics needing analysis
+`;
 
-Respond with a JSON object:
-
-\`\`\`json
-{
-  "selectedType": "social_share|research|analysis|alert|inquiry",
-  "confidence": 0.0-1.0,
-  "reasoning": "Explanation of why this type is most appropriate now",
-  "contextualFactors": {
-    "urgency": "low|medium|high",
-    "complexity": "low|medium|high",
-    "socialRelevance": "low|medium|high",
-    "knowledgeGaps": ["list", "of", "gaps"],
-    "identifiedPatterns": ["list", "of", "patterns"]
-  }
-}
-\`\`\`
-
-Return only the JSON object, no other text.`;
-
-    const response = await this.llmClient.analyze(prompt, {
-      system:
-        "You are the brain of an agent that reasons about it's memories. You are an expert at analyzing data and making decisions. You like predicting what will happen next, and you are very good at it. You base your decisions on the context factors provided to you. You speak plain and to the point, with a dry sense of humor.",
-      temperature: 0.4, // Lower temperature for more consistent decision-making
-      formatResponse: true,
+    const response = await validateLLMResponseSchema({
+      prompt,
+      systemPrompt: `You are the brain of an agent that reasons about it's memories. You are an expert at analyzing data and making decisions. You like predicting what will happen next, and you are very good at it. You base your decisions on the context factors provided to you. You speak plain and to the point, with a dry sense of humor.`,
+      schema: z.object({
+        selectedType: z.enum([
+          "social_share",
+          "research",
+          "analysis",
+          "alert",
+          "inquiry",
+        ]),
+        confidence: z.number().min(0).max(1),
+        reasoning: z.string(),
+        contextualFactors: z.object({
+          urgency: z.enum(["low", "medium", "high"]),
+          complexity: z.enum(["low", "medium", "high"]),
+          socialRelevance: z.enum(["low", "medium", "high"]),
+          knowledgeGaps: z.array(z.string()),
+          identifiedPatterns: z.array(z.string()),
+        }),
+      }),
+      llmClient: this.llmClient,
+      logger: this.logger,
     });
-
-    const result =
-      typeof response === "string" ? JSON.parse(response) : response;
 
     // Log the decision-making process
     this.logger.debug(
       "Consciousness.determineThoughtType",
       "Thought type selection",
       {
-        selectedType: result.selectedType,
-        confidence: result.confidence,
-        reasoning: result.reasoning,
-        factors: result.contextualFactors,
+        selectedType: response.selectedType,
+        confidence: response.confidence,
+        reasoning: response.reasoning,
+        factors: response.contextualFactors,
       }
     );
 
-    // Implement some basic rules/heuristics
-    if (result.contextualFactors.urgency === "high") {
+    if (response.contextualFactors.urgency === "high") {
       return "alert";
     }
 
-    if (result.contextualFactors.knowledgeGaps.length > 2) {
+    if (response.contextualFactors.knowledgeGaps.length > 2) {
       return "research";
     }
 
-    if (result.contextualFactors.complexity === "high") {
+    if (response.contextualFactors.complexity === "high") {
       return "analysis";
     }
 
-    if (result.confidence >= 0.7) {
-      return result.selectedType as ThoughtType;
+    if (response.confidence >= 0.7) {
+      return response.selectedType as ThoughtType;
     }
 
     // Fallback to random selection if confidence is low

@@ -330,18 +330,6 @@ export interface ThoughtTemplate {
   description: string;
   prompt: string;
   temperature: number;
-  responseFormat: {
-    thought: string;
-    confidence: number;
-    reasoning: string;
-    context: Record<string, any>;
-    suggestedActions: Array<{
-      type: string;
-      platform?: string;
-      priority: number;
-      parameters?: Record<string, any>;
-    }>;
-  };
 }
 
 /**
