@@ -137,22 +137,6 @@ export class Orchestrator {
   }
 
   /**
-   * (Public) Unsubscribe from an input source, preserving your old method name.
-   * Internally, just calls removeIOHandler.
-   */
-  public unsubscribeFromInputSource(name: string): void {
-    this.removeIOHandler(name);
-  }
-
-  /**
-   * Removes an output handler, preserving old method name.
-   * Internally, calls removeIOHandler.
-   */
-  public removeOutputHandler(name: string): void {
-    this.removeIOHandler(name);
-  }
-
-  /**
    * Executes a handler with role="output" by name, passing data to it.
    * This is effectively "dispatchToOutput."
    */

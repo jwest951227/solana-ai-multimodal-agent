@@ -79,6 +79,8 @@ async function main() {
       const mentionsInput = twitter.createMentionsInput(60000);
       const mentions = await mentionsInput.handler();
 
+      console.log("mentions", mentions);
+
       // If no new mentions, return null to skip processing
       if (!mentions || mentions.length === 0) {
         return null;
@@ -163,10 +165,10 @@ async function main() {
 
     // Clean up resources
     await consciousness.stop();
-    core.unsubscribeFromInputSource("twitter_mentions");
-    core.unsubscribeFromInputSource("consciousness_thoughts");
-    core.removeOutputHandler("twitter_reply");
-    core.removeOutputHandler("twitter_thought");
+    core.removeIOHandler("twitter_mentions");
+    core.removeIOHandler("consciousness_thoughts");
+    core.removeIOHandler("twitter_reply");
+    core.removeIOHandler("twitter_thought");
 
     console.log(chalk.green("✅ Shutdown complete"));
     process.exit(0);
