@@ -1,30 +1,54 @@
 import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
-import type { VectorDB } from "../types";
-import { LogLevel, type Input, type LoggerConfig, type Output } from "../types";
-import type { Processor } from "./processor";
 import { TaskScheduler } from "./task-scheduler";
+import type { Processor } from "./processor";
+import type { VectorDB } from "../types"; // If you rely on VectorDB from here
+import { LogLevel, type LoggerConfig } from "../types";
+import type { z } from "zod";
 
 /**
- * Core system that manages inputs, outputs, and processing.
- * Coordinates between input sources, the processor, and output handlers.
+ * A single interface for all Inputs, Outputs, and even Actions if desired.
+ */
+export interface IOHandler {
+  /** Unique name for this handler */
+  name: string;
+  /** "input" | "output" | (optionally "action") if you want more roles */
+  role: "input" | "output";
+  /** For input handlers with recurring scheduling */
+  interval?: number;
+
+  schema: z.ZodType<any>;
+  /** Next run time (timestamp in ms); for input scheduling. */
+  nextRun?: number;
+  /** The main function. For inputs, no payload is typically passed. For outputs, pass the data. */
+  handler: (payload?: unknown) => Promise<unknown>;
+}
+
+/**
+ * Orchestrator system that manages both "input" and "output" handlers
+ * in a unified manner, along with scheduling recurring inputs.
  */
 export class Orchestrator {
-  private readonly inputs = new Map<string, Input & { nextRun: number }>();
-  private readonly outputs = new Map<string, Output>();
-  private readonly logger: Logger;
-  private readonly processor: Processor;
-  public readonly vectorDb: VectorDB;
-
-  private readonly inputScheduler: TaskScheduler<Input & { nextRun: number }>;
+  /**
+   * Unified collection of IOHandlers (both input & output).
+   * Keyed by .name
+   */
+  private readonly ioHandlers = new Map<string, IOHandler>();
 
   /**
-   * Creates a new Core instance.
-   * @param roomManager - Manager for handling rooms/spaces
-   * @param vectorDb - Vector database for storing embeddings
-   * @param processor - Processor for handling content
-   * @param config - Optional configuration options
+   * A TaskScheduler that only schedules and runs input handlers
    */
+  private readonly inputScheduler: TaskScheduler<
+    IOHandler & { nextRun: number }
+  >;
+
+  private readonly logger: Logger;
+  private readonly processor: Processor;
+
+  /**
+   * Other references in your system. Adjust as needed.
+   */
+  public readonly vectorDb: VectorDB;
   constructor(
     private readonly roomManager: RoomManager,
     vectorDb: VectorDB,
@@ -33,6 +57,7 @@ export class Orchestrator {
   ) {
     this.vectorDb = vectorDb;
     this.processor = processor;
+
     this.logger = new Logger(
       config ?? {
         level: LogLevel.ERROR,
@@ -41,101 +66,149 @@ export class Orchestrator {
       }
     );
 
-    this.inputScheduler = new TaskScheduler(async (task) => {
-      await this.processInputTask(task);
+    // Our TaskScheduler will handle only input-type IOHandlers
+    this.inputScheduler = new TaskScheduler(async (handler) => {
+      await this.processInputTask(handler);
     });
   }
 
   /**
-   * Registers a new input handler with the system.
-   * If the input is recurring (has an interval), it will be scheduled to run repeatedly.
-   * @param input The input configuration to register
+   * Primary method to register any IOHandler (input or output).
+   * - If it's an input with an interval, schedule it for recurring runs.
+   * - Otherwise, just store it in the ioHandlers map.
    */
-  public subscribeToInputSource(input: Input): void {
-    const now = Date.now();
-    const nextRun = input.nextRun ?? now;
+  public registerIOHandler(handler: IOHandler): void {
+    if (this.ioHandlers.has(handler.name)) {
+      this.logger.warn(
+        "Orchestrator.registerIOHandler",
+        "Overwriting handler with same name",
+        {
+          name: handler.name,
+        }
+      );
+    }
+    this.ioHandlers.set(handler.name, handler);
 
-    const scheduledInput = { ...input, nextRun };
-    this.inputs.set(input.name, scheduledInput);
-    this.inputScheduler.scheduleTask(scheduledInput);
+    // If it's an "input" and has an interval, schedule it
+    if (handler.role === "input" && handler.interval) {
+      // Ensure nextRun is definitely set
+      const scheduledHandler = {
+        ...handler,
+        nextRun: handler.nextRun ?? Date.now(),
+      };
+      this.inputScheduler.scheduleTask(scheduledHandler);
 
-    this.logger.info("Core.subscribeToInputSource", "Registered input", {
-      name: input.name,
-      nextRun,
-      interval: input.interval,
-    });
-  }
-
-  /**
-   * Removes a registered input handler.
-   * @param name Name of the input to remove
-   */
-  public unsubscribeFromInputSource(name: string): void {
-    const input = this.inputs.get(name);
-    if (input) {
-      this.inputs.delete(name);
       this.logger.info(
-        "Core.unsubscribeFromInputSource",
-        `Removed input: ${name}`
+        "Orchestrator.registerIOHandler",
+        "Registered recurring input",
+        {
+          name: handler.name,
+          interval: handler.interval,
+          nextRun: scheduledHandler.nextRun,
+        }
+      );
+    } else {
+      // Register the handler with the processor
+      this.processor.registerIOHandler(handler);
+
+      // For outputs (or non-recurring inputs), just log
+      this.logger.info(
+        "Orchestrator.registerIOHandler",
+        `Registered ${handler.role}`,
+        {
+          name: handler.name,
+        }
       );
     }
   }
 
   /**
-   * Registers a new output handler with the system.
-   * @param output The output configuration to register
+   * Removes a handler (input or output) by name, stopping scheduling if needed.
    */
-  public registerOutput(output: Output): void {
-    this.logger.info("Core.registerOutput", "Registering output", {
-      name: output.name,
-    });
-    this.outputs.set(output.name, output);
-    this.processor.registerAvailableOutput(output);
-  }
-
-  /**
-   * Removes a registered output handler.
-   * @param name Name of the output to remove
-   */
-  public removeOutputHandler(name: string): void {
-    if (this.outputs.has(name)) {
-      this.outputs.delete(name);
-      this.logger.info("Core.removeOutputHandler", `Removing output: ${name}`);
+  public removeIOHandler(name: string): void {
+    if (this.ioHandlers.has(name)) {
+      // If it was scheduled as an input, it will no longer be re-scheduled
+      this.ioHandlers.delete(name);
+      this.logger.info(
+        "Orchestrator.removeIOHandler",
+        `Removed IOHandler: ${name}`
+      );
     }
   }
 
   /**
-   * Handles execution of an input when it's scheduled to run.
-   * @param input The input to handle
-   * @private
+   * Executes a handler with role="output" by name, passing data to it.
+   * This is effectively "dispatchToOutput."
    */
-  private async processInputTask(
-    input: Input & { nextRun: number }
-  ): Promise<void> {
-    const { name, interval } = input;
+  public async dispatchToOutput<T>(name: string, data: T): Promise<unknown> {
+    const handler = this.ioHandlers.get(name);
+    if (!handler) {
+      throw new Error(`No IOHandler registered with name: ${name}`);
+    }
 
+    if (handler.role !== "output") {
+      throw new Error(`Handler "${name}" is not an output handler`);
+    }
+
+    this.logger.debug("Orchestrator.dispatchToOutput", "Executing output", {
+      name,
+      data,
+    });
+
+    // Optionally validate data with a schema if you had one
     try {
-      const result = await input.handler();
+      const result = await handler.handler(data);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        "Orchestrator.dispatchToOutput",
+        "Handler threw an error",
+        {
+          name,
+          error,
+        }
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * The method the TaskScheduler calls for each scheduled input.
+   * We only schedule inputs in the constructor's scheduler.
+   */
+  private async processInputTask(handler: IOHandler): Promise<void> {
+    try {
+      const result = await handler.handler();
+
       if (!result) return;
 
-      if (interval && interval > 0) {
-        input.nextRun = Date.now() + interval;
-        this.inputScheduler.scheduleTask(input);
+      if (handler.interval && handler.interval > 0) {
+        // Create a new handler object with definite nextRun
+        const scheduledHandler = {
+          ...handler,
+          nextRun: Date.now() + handler.interval,
+        };
+        this.inputScheduler.scheduleTask(scheduledHandler);
       } else {
-        this.inputs.delete(name);
+        this.removeIOHandler(handler.name);
       }
 
-      const room = await this.roomManager.ensureRoom(name, "core");
+      const room = await this.roomManager.ensureRoom(handler.name, "core");
       const items = Array.isArray(result) ? result : [result];
 
       for (const item of items) {
         const processed = await this.processor.process(item, room);
+
         if (!processed.alreadyProcessed) {
+          for (const output of processed.suggestedOutputs) {
+            await this.dispatchToOutput(output.name, output.data);
+          }
+
           await this.roomManager.addMemory(
             room.id,
             JSON.stringify(processed.content),
             {
-              source: name,
+              source: handler.name,
               type: "input",
               ...processed.metadata,
               ...processed.enrichedContext,
@@ -144,42 +217,31 @@ export class Orchestrator {
         }
       }
     } catch (error) {
-      this.logger.error("Core.processInputTask", "Error processing input", {
-        name,
-        error,
-      });
+      this.logger.error(
+        "Orchestrator.processInputTask",
+        "Error processing input",
+        {
+          name: handler.name,
+          error:
+            error instanceof Error
+              ? {
+                  message: error.message,
+                  stack: error.stack,
+                  name: error.name,
+                }
+              : error,
+          handlerType: handler.role,
+          interval: handler.interval,
+        }
+      );
     }
   }
 
   /**
-   * Executes a registered output handler with the provided data.
-   * @param name Name of the output to execute
-   * @param data Data to pass to the output handler
-   * @returns The result of the output handler
-   * @template T The type of data the output handler accepts
-   */
-  public async dispatchToOutput<T>(name: string, data: T): Promise<T> {
-    const output = this.outputs.get(name);
-    if (!output) {
-      throw new Error(`No output registered with name: ${name}`);
-    }
-    this.logger.debug("Core.dispatchToOutput", "Executing output", {
-      name,
-      data,
-    });
-
-    try {
-      return data;
-    } catch (error) {
-      return error as T;
-    }
-  }
-
-  /**
-   * Stops all scheduled tasks and shuts down the Core system.
+   * Stops all scheduled tasks and shuts down the orchestrator.
    */
   public stop(): void {
     this.inputScheduler.stop();
-    this.logger.info("Core.stop", "All scheduled inputs stopped.");
+    this.logger.info("Orchestrator.stop", "All scheduled inputs stopped.");
   }
 }

@@ -15,12 +15,10 @@ import chalk from "chalk";
 
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { GoalStatus, LogLevel } from "../packages/core/src/types";
-import {
-  executeStarknetTransaction,
-  fetchGraphQL,
-} from "../packages/core/src/core/providers";
-
+import { fetchGraphQL } from "../packages/core/src/core/providers";
+import { StarknetChain } from "../packages/core/src/core/chains/starknet";
 import { z } from "zod";
+import { env } from "../packages/core/src/core/env";
 
 /**
  * Helper function to get user input from CLI
@@ -60,6 +58,12 @@ async function main() {
     model: "deepseek/deepseek-r1", // High performance model
   });
 
+  const starknetChain = new StarknetChain({
+    rpcUrl: env.STARKNET_RPC_URL,
+    address: env.STARKNET_ADDRESS,
+    privateKey: env.STARKNET_PRIVATE_KEY,
+  });
+
   const memory = new ChromaVectorDB("agent_memory");
   await memory.purge(); // Clear previous session data
 
@@ -96,7 +100,7 @@ async function main() {
   dreams.registerOutput({
     name: "EXECUTE_TRANSACTION",
     handler: async (data: any) => {
-      const result = await executeStarknetTransaction(data.payload);
+      const result = await starknetChain.write(data.payload);
       return `Transaction executed successfully: ${JSON.stringify(
         result,
         null,

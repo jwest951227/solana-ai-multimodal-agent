@@ -330,18 +330,6 @@ export interface ThoughtTemplate {
   description: string;
   prompt: string;
   temperature: number;
-  responseFormat: {
-    thought: string;
-    confidence: number;
-    reasoning: string;
-    context: Record<string, any>;
-    suggestedActions: Array<{
-      type: string;
-      platform?: string;
-      priority: number;
-      parameters?: Record<string, any>;
-    }>;
-  };
 }
 
 /**
@@ -522,4 +510,22 @@ export interface DomainMetadata {
   domain: string;
   subDomain?: string;
   confidence: number;
+}
+
+export interface IChain {
+  /**
+   * A unique identifier for the chain (e.g., "starknet", "ethereum", "solana", etc.)
+   */
+  chainId: string;
+
+  /**
+   * Read (call) a contract or perform a query on this chain.
+   * The `call` parameter can be chain-specific data.
+   */
+  read(call: unknown): Promise<any>;
+
+  /**
+   * Write (execute a transaction) on this chain, typically requiring signatures, etc.
+   */
+  write(call: unknown): Promise<any>;
 }
