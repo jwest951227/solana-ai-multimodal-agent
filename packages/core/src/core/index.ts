@@ -14,7 +14,7 @@ import { StepManager } from "./step-manager";
 import { defaultCharacter } from "./character";
 import * as Utils from "./utils";
 import * as Providers from "./providers";
-
+import * as Chains from "./chains";
 export {
   Orchestrator,
   Consciousness,
@@ -32,4 +32,5 @@ export {
   Utils,
   defaultCharacter,
   Providers,
+  Chains,
 };
