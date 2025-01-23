@@ -2,7 +2,7 @@
 
 # Daydreams
 
-Daydreams is a generative agent library for playing anything onchain. It is chain agnostic and can be used to perform onchain tasks - including play any onchain game - by simply injecting context. Base, Solana, Ethereum, Starknet, etc
+Daydreams is a generative agent library for executing anything onchain. It is chain agnostic and can be used to perform onchain tasks - including play any onchain game - by simply injecting context. Base, Solana, Ethereum, Starknet, etc
 
 It is designed to be as lite as possible. Keep it simple and powerful.
 
