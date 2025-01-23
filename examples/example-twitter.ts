@@ -21,7 +21,7 @@ import { Consciousness } from "../packages/core/src/core/consciousness";
 import { z } from "zod";
 
 async function main() {
-  const loglevel = LogLevel.ERROR;
+  const loglevel = LogLevel.DEBUG;
   // Initialize core dependencies
   const vectorDb = new ChromaVectorDB("twitter_agent", {
     chromaUrl: "http://localhost:8000",
@@ -33,7 +33,9 @@ async function main() {
   const roomManager = new RoomManager(vectorDb);
 
   const llmClient = new LLMClient({
-    model: "deepseek/deepseek-r1", // High performance model
+    model: "openai/gpt-4-turbo-preview", // Using OpenAI's GPT-4 Turbo
+    temperature: 0.7, // Slightly more creative
+    maxTokens: 4096, // Increased context window
   });
 
   // Initialize processor with default character personality
@@ -41,7 +43,7 @@ async function main() {
     vectorDb,
     llmClient,
     defaultCharacter,
-    LogLevel.INFO
+    loglevel
   );
 
   // Initialize core system
