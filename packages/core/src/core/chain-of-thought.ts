@@ -62,6 +62,19 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
+  /**
+   * Plans a strategic approach to achieve a given objective by breaking it down into hierarchical goals.
+   *
+   * This method:
+   * 1. Retrieves relevant documents and past experiences from memory
+   * 2. Generates a hierarchical goal structure with long-term, medium-term, and short-term goals
+   * 3. Creates goals in the goal manager and emits goal creation events
+   * 4. Records the planning step
+   *
+   * @param objective - The high-level objective to plan for
+   * @throws Will throw an error if strategy planning fails
+   * @emits goal:created - When each new goal is created
+   */
   public async planStrategy(objective: string): Promise<void> {
     this.logger.debug("planStrategy", "Planning strategy for objective", {
       objective,
@@ -208,6 +221,14 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
+  /**
+   * Gets a prioritized list of goals that are ready to be worked on.
+   * Goals are sorted first by horizon (short-term > medium-term > long-term)
+   * and then by their individual priority values.
+   *
+   * @returns An array of Goal objects sorted by priority
+   * @internal
+   */
   private getPrioritizedGoals(): Goal[] {
     const readyGoals = this.goalManager.getReadyGoals();
     const horizonPriority: Record<string, number> = {
@@ -226,6 +247,19 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
+  /**
+   * Checks if a goal can be executed based on current state and requirements.
+   *
+   * Analyzes the goal against relevant documents, past experiences, and current state
+   * to determine if all prerequisites are met for execution.
+   *
+   * @param goal - The goal to evaluate for execution
+   * @returns Object containing:
+   *  - possible: Whether the goal can be executed
+   *  - reason: Explanation of why the goal can/cannot be executed
+   *  - missing_requirements: List of requirements that are not met
+   *  - incompleteState: Optional flag indicating if state info is incomplete
+   */
   private async canExecuteGoal(goal: Goal): Promise<{
     possible: boolean;
     reason: string;
@@ -261,7 +295,7 @@ export class ChainOfThought extends EventEmitter {
       ${JSON.stringify(blackboardState, null, 2)}
       </current_game_state>
       
-      Required dependencies:
+      # Required dependencies:
       ${JSON.stringify(goal.dependencies || {}, null, 2)}
       
       # Analyze if this goal can be executed right now. Consider:
@@ -323,7 +357,20 @@ export class ChainOfThought extends EventEmitter {
       };
     }
   }
-
+  /**
+   * Refines a high-level goal into more specific, actionable sub-goals by analyzing relevant context.
+   *
+   * This method:
+   * 1. Retrieves relevant documents and past experiences from memory
+   * 2. Gets current blackboard state
+   * 3. Uses LLM to break down the goal into concrete sub-goals
+   * 4. Validates sub-goals match required schema
+   *
+   * @param goal - The high-level goal to refine into sub-goals
+   * @param maxRetries - Maximum number of retries for LLM calls (default: 3)
+   * @throws Will throw an error if goal refinement fails after max retries
+   * @internal
+   */
   private async refineGoal(goal: Goal, maxRetries: number = 3): Promise<void> {
     const [relevantDocs, relevantExperiences, blackboardState] =
       await Promise.all([
@@ -417,6 +464,22 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
+  /**
+   * Executes the next highest priority goal that is ready for execution.
+   *
+   * This method:
+   * 1. Gets prioritized list of ready goals
+   * 2. For each goal, checks if it can be executed
+   * 3. If executable, attempts execution
+   * 4. If not executable:
+   *    - For short-term goals with incomplete state, attempts anyway
+   *    - For non-short-term goals with incomplete state, refines the goal
+   *    - Otherwise blocks the goal hierarchy
+   *
+   * @emits goal:started - When goal execution begins
+   * @emits goal:blocked - When a goal cannot be executed
+   * @returns Promise that resolves when execution is complete
+   */
   public async executeNextGoal(): Promise<void> {
     const prioritizedGoals = this.getPrioritizedGoals();
 
@@ -559,6 +622,18 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
+  /**
+   * Analyzes how the world state has changed after a goal is completed and determines what context updates are needed.
+   *
+   * This method:
+   * 1. Gets the current blackboard state
+   * 2. Analyzes recent steps and the completed goal
+   * 3. Uses LLM to determine what context fields need to be updated
+   *
+   * @param goal - The completed goal to analyze for context changes
+   * @returns A partial context object with only the fields that need updating, or null if analysis fails
+   * @internal
+   */
   private async determineContextUpdates(
     goal: Goal
   ): Promise<Partial<ChainOfThoughtContext> | null> {
@@ -596,6 +671,18 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
+  /**
+   * Handles the failure of a goal by updating its status and notifying relevant systems.
+   *
+   * This method:
+   * 1. Updates the failed goal's status
+   * 2. If the goal has a parent, marks the parent as blocked
+   * 3. Emits a goal:failed event
+   *
+   * @param goal - The goal that failed
+   * @param error - The error that caused the failure
+   * @internal
+   */
   private async handleGoalFailure(
     goal: Goal,
     error: Error | unknown
@@ -613,6 +700,19 @@ export class ChainOfThought extends EventEmitter {
     });
   }
 
+  /**
+   * Validates whether a goal has been successfully achieved by analyzing the current context
+   * against the goal's success criteria.
+   *
+   * This method:
+   * 1. Gets the current blackboard state
+   * 2. Prompts an LLM to evaluate success criteria against context
+   * 3. Returns whether the goal was validated as successful
+   *
+   * @param goal - The goal to validate
+   * @returns A boolean indicating whether the goal was successfully achieved
+   * @internal
+   */
   private async validateGoalSuccess(goal: Goal): Promise<boolean> {
     const blackboardState = await this.getBlackboardState();
 
@@ -686,11 +786,22 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Add a new step to the end of the chain.
-   * @param content Reasoning or textual content of the step.
-   * @param type The type of the step.
-   * @param tags Optional tags or categories to label the step.
-   * @param meta Additional metadata to store in the step.
+   * Adds a new step to the chain of thought sequence.
+   *
+   * @remarks
+   * Each step represents a discrete action, reasoning, or decision point in the chain.
+   * Steps are stored in chronological order and can be tagged for categorization.
+   *
+   * @param content - The main content/description of the step
+   * @param type - The type of step (e.g. "action", "reasoning", "system", etc)
+   * @param tags - Optional array of string tags to categorize the step
+   * @param meta - Optional metadata object to store additional step information
+   * @returns The newly created Step object
+   *
+   * @example
+   * ```ts
+   * chain.addStep("Analyzing user request", "reasoning", ["analysis"]);
+   * ```
    */
   public addStep(
     content: string,
@@ -713,8 +824,23 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Merge new data into the current context.
-   * @param newContext Partial context to merge into the existing context.
+   * Merges new data into the current chain of thought context.
+   *
+   * @remarks
+   * This method performs a shallow merge of the provided partial context into the existing context.
+   * Any properties in the new context will overwrite matching properties in the current context.
+   * Properties not included in the new context will remain unchanged.
+   *
+   * @param newContext - Partial context object containing properties to merge into the existing context
+   * @throws Will not throw errors, but invalid context properties will be ignored
+   *
+   * @example
+   * ```ts
+   * chain.mergeContext({
+   *   worldState: "Updated world state",
+   *   newProperty: "New value"
+   * });
+   * ```
    */
   public mergeContext(newContext: Partial<ChainOfThoughtContext>): void {
     this.logger.debug("mergeContext", "Merging new context", { newContext });
@@ -726,7 +852,17 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Add (push) a context snapshot to keep track of changes over time.
+   * Creates and stores a snapshot of the current context state.
+   *
+   * @remarks
+   * This method creates a deep copy of the current context and adds it to the snapshots array.
+   * Snapshots provide a historical record of how the context has changed over time.
+   * Each snapshot is a complete copy of the context at that point in time.
+   *
+   * @example
+   * ```ts
+   * chain.snapshotContext(); // Creates a snapshot of current context state
+   * ```
    */
   public snapshotContext(): void {
     this.logger.debug("snapshotContext", "Creating context snapshot");
@@ -736,12 +872,44 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Retrieve all snapshots.
+   * Retrieves all context snapshots that have been captured.
+   *
+   * @remarks
+   * Returns an array containing all historical snapshots of the context state,
+   * in chronological order. Each snapshot represents the complete context state
+   * at the time it was captured using {@link snapshotContext}.
+   *
+   * @returns An array of {@link ChainOfThoughtContext} objects representing the historical snapshots
+   *
+   * @example
+   * ```ts
+   * const snapshots = chain.getSnapshots();
+   * console.log(`Number of snapshots: ${snapshots.length}`);
+   * ```
    */
   public getSnapshots(): ChainOfThoughtContext[] {
     return this.snapshots;
   }
 
+  /**
+   * Registers an output handler for a specific action type.
+   *
+   * @param output - The output handler configuration containing the name and schema
+   * @remarks
+   * Output handlers define how different action types should be processed and validated.
+   * Each output handler is associated with a specific action type and includes a schema
+   * for validating action payloads.
+   *
+   * @example
+   * ```ts
+   * chain.registerOutput({
+   *   name: "sendMessage",
+   *   schema: z.object({
+   *     message: z.string()
+   *   })
+   * });
+   * ```
+   */
   public registerOutput(output: Output): void {
     this.logger.debug("registerOutput", "Registering output", {
       name: output.name,
@@ -751,7 +919,16 @@ export class ChainOfThought extends EventEmitter {
 
   /**
    * Removes a registered output handler.
-   * @param name Name of the output to remove
+   *
+   * @param name - The name of the output handler to remove
+   * @remarks
+   * This method removes a previously registered output handler from the chain.
+   * If no handler exists with the given name, this method will do nothing.
+   *
+   * @example
+   * ```ts
+   * chain.removeOutput("sendMessage");
+   * ```
    */
   public removeOutput(name: string): void {
     if (this.outputs.has(name)) {
@@ -760,14 +937,26 @@ export class ChainOfThought extends EventEmitter {
     }
   }
 
-  // public registerAction(type: string, handler: ActionHandler): void {
-  //   this.logger.debug("registerAction", "Registering custom action", { type });
-  //   this.actionRegistry.set(type, handler);
-  // }
-
   /**
-   * A central method to handle CoT actions that might be triggered by the LLM.
-   * @param action The action to be executed.
+   * Executes a Chain of Thought action triggered by the LLM.
+   *
+   * @param action - The Chain of Thought action to execute
+   * @returns A string describing the result of the action execution
+   * @throws {Error} If the action handler throws an error during execution
+   * @remarks
+   * This method handles the execution of actions triggered by the LLM during the Chain of Thought process.
+   * It validates the action payload against the registered output handler's schema and executes the
+   * corresponding handler function.
+   *
+   * @example
+   * ```ts
+   * const result = await chain.executeAction({
+   *   type: "sendMessage",
+   *   payload: {
+   *     message: "Hello world"
+   *   }
+   * });
+   * ```
    */
   public async executeAction(action: CoTAction): Promise<string> {
     this.logger.debug("executeAction", "Executing action", { action });
@@ -840,8 +1029,14 @@ export class ChainOfThought extends EventEmitter {
 
   /**
    * Removes a step from the chain by its ID.
-   * @param stepId The unique identifier of the step to remove
-   * @throws Error if the step with the given ID doesn't exist
+   *
+   * @param stepId - The unique identifier of the step to remove
+   * @throws {Error} When no step exists with the given ID
+   * @remarks This method will remove the step from the chain's history and cannot be undone
+   * @example
+   * ```ts
+   * chain.removeStep("step-123");
+   * ```
    */
   public removeStep(stepId: string): void {
     this.logger.debug("removeStep", "Removing step", { stepId });
@@ -858,7 +1053,18 @@ export class ChainOfThought extends EventEmitter {
   }
 
   /**
-   * Returns a formatted string listing all available actions registered in the action registry
+   * Returns a formatted string listing all available outputs registered in the outputs registry.
+   * The string includes each output name on a new line prefixed with a bullet point.
+   * @returns A formatted string containing all registered output names
+   * @example
+   * ```ts
+   * // If outputs contains "console" and "file"
+   * getAvailableOutputs() // Returns:
+   * // Available outputs:
+   * // - console
+   * // - file
+   * ```
+   * @internal
    */
   private getAvailableOutputs(): string {
     const outputs = Array.from(this.outputs.keys());
@@ -1161,6 +1367,13 @@ ${availableOutputs
     }
   }
 
+  /**
+   * Formats the outcome of an action into a human-readable summary using the LLM.
+   *
+   * @param action - The action that was taken
+   * @param result - The result of the action, either as a string or structured data
+   * @returns A concise, human-readable summary of the action outcome
+   */
   private async formatActionOutcome(
     action: string,
     result: string | Record<string, any>
@@ -1201,6 +1414,14 @@ ${availableOutputs
     return response.toString().trim();
   }
 
+  /**
+   * Stores an episode in memory based on an action and its result.
+   *
+   * @param action - The action that was taken
+   * @param result - The result of the action, either as a string or object
+   * @param importance - Optional importance score for the episode. If not provided, will be calculated automatically
+   * @returns Promise that resolves when the episode is stored
+   */
   private async storeEpisode(
     action: string,
     result: string | Record<string, any>,
@@ -1241,6 +1462,15 @@ ${availableOutputs
     }
   }
 
+  /**
+   * Stores a knowledge document in memory.
+   *
+   * @param title - The title of the knowledge document
+   * @param content - The content/body of the knowledge document
+   * @param category - The category to organize this knowledge under
+   * @param tags - Array of tags to help classify and search for this knowledge
+   * @returns Promise that resolves when the knowledge is stored
+   */
   private async storeKnowledge(
     title: string,
     content: string,
@@ -1301,6 +1531,20 @@ ${availableOutputs
     }
   }
 
+  /**
+   * Retrieves the current state of the blackboard by aggregating all stored updates.
+   * The blackboard state is built by applying updates in chronological order, organized by type and key.
+   *
+   * @returns A nested object containing the current blackboard state, where the first level keys are update types
+   * and second level keys are the specific keys within each type, with their corresponding values.
+   * @example
+   * // Returns something like:
+   * {
+   *   resource: { gold: 100, wood: 50 },
+   *   state: { isGameStarted: true },
+   *   event: { lastBattle: "won" }
+   * }
+   */
   async getBlackboardState(): Promise<Record<string, any>> {
     try {
       // Use findDocumentsByCategory to get all blackboard documents
@@ -1338,6 +1582,21 @@ ${availableOutputs
     }
   }
 
+  /**
+   * Retrieves the history of blackboard updates, optionally filtered by type and key.
+   * Returns updates in reverse chronological order (newest first).
+   *
+   * @param type - Optional type to filter updates by (e.g. 'resource', 'state', 'event')
+   * @param key - Optional key within the type to filter updates by
+   * @param limit - Maximum number of history entries to return (defaults to 10)
+   * @returns Array of blackboard updates, each containing the update details and metadata
+   * @example
+   * // Returns something like:
+   * [
+   *   { type: 'resource', key: 'gold', value: 100, timestamp: 1234567890, id: 'doc1', lastUpdated: '2023-01-01' },
+   *   { type: 'resource', key: 'gold', value: 50, timestamp: 1234567880, id: 'doc2', lastUpdated: '2023-01-01' }
+   * ]
+   */
   async getBlackboardHistory(
     type?: string,
     key?: string,

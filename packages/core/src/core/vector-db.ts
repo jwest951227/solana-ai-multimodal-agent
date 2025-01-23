@@ -1,4 +1,4 @@
-import crypto from "crypto"; // Needed for crypto.randomUUID()
+import crypto from "crypto";
 import { ChromaClient, IncludeEnum, OpenAIEmbeddingFunction } from "chromadb";
 import { env } from "./env";
 import { Logger } from "./logger";
@@ -19,10 +19,6 @@ import {
 } from "../types";
 import { isValidDateValue } from "./utils";
 
-// Helper function to check if a value can be used for a Date constructor
-
-// ======================= MAIN CLASS =======================
-
 export class ChromaVectorDB implements VectorDB {
   // Static collection names
   static readonly CLUSTER_COLLECTION = "clusters";
@@ -35,9 +31,6 @@ export class ChromaVectorDB implements VectorDB {
   private logger: Logger;
   private collectionName: string;
 
-  /**
-   * Constructs a ChromaVectorDB for general "memory" usage.
-   */
   constructor(
     collectionName = "memories",
     config: {
