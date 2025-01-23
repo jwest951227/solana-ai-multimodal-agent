@@ -81,8 +81,32 @@ export class LLMClient extends EventEmitter {
   private readonly provider: keyof ProviderMap;
 
   /**
-   * Creates a new LLM client instance
+   * Creates a new LLM client instance - supports all major LLM providers
    * @param config - Configuration options for the client
+   * @param config.model - Model identifier in format "provider/model". Popular models:
+   *   - OpenAI: openai/o1 | openai/o1-2024-12-17 | openai/o1-mini | openai/o1-mini-2024-09-12 | openai/o1-preview | openai/o1-preview-2024-09-12 | openai/gpt-4o | openai/gpt-4o-2024-05-13 | openai/gpt-4o-2024-08-06 | openai/gpt-4o-2024-11-20 | openai/gpt-4o-audio-preview | openai/gpt-4o-audio-preview-2024-10-01 | openai/gpt-4o-audio-preview-2024-12-17 | openai/gpt-4o-mini | openai/gpt-4o-mini-2024-07-18 | openai/gpt-4-turbo | openai/gpt-4-turbo-2024-04-09 | openai/gpt-4-turbo-preview | openai/gpt-4-0125-preview | openai/gpt-4-1106-preview | openai/gpt-4 | openai/gpt-4-0613 | openai/gpt-3.5-turbo-0125 | openai/gpt-3.5-turbo | openai/gpt-3.5-turbo-1106
+   *   - Anthropic: anthropic/claude-3-5-sonnet-latest | anthropic/claude-3-5-sonnet-20241022 | anthropic/claude-3-5-sonnet-20240620 | anthropic/claude-3-5-haiku-latest | anthropic/claude-3-5-haiku-20241022 | anthropic/claude-3-opus-latest | anthropic/claude-3-opus-20240229 | anthropic/claude-3-sonnet-20240229 | anthropic/claude-3-haiku-20240307
+   *   - Google: google/gemini-2.0-flash-exp | google/gemini-1.5-flash | google/gemini-1.5-flash-latest | google/gemini-1.5-flash-001 | google/gemini-1.5-flash-002 | google/gemini-1.5-flash-exp-0827 | google/gemini-1.5-flash-8b | google/gemini-1.5-flash-8b-latest | google/gemini-1.5-flash-8b-exp-0924 | google/gemini-1.5-flash-8b-exp-0827 | google/gemini-1.5-pro-latest | google/gemini-1.5-pro | google/gemini-1.5-pro-001 | google/gemini-1.5-pro-002 | google/gemini-1.5-pro-exp-0827 | google/gemini-1.0-pro
+   *   - Mistral: mistral/ministral-3b-latest | mistral/ministral-8b-latest | mistral/mistral-large-latest | mistral/mistral-small-latest | mistral/pixtral-large-latest | mistral/pixtral-12b-2409 | mistral/open-mistral-7b | mistral/open-mixtral-8x7b | mistral/open-mixtral-8x22b
+   *   - Azure: azure/gpt-4, azure/gpt-35-turbo etc like OpenAI
+   *   - Cohere: cohere/command-r-plus | cohere/command-r-plus-08-2024 | cohere/command-r | cohere/command-r-08-2024 | cohere/command-r-03-2024 | cohere/command | cohere/command-nightly | cohere/command-light | cohere/command-light-nightly
+   *   - Together AI: togetherai/meta-llama/Llama-3.3-70B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3.1-405B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3-8B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3-70B-Instruct-Turbo | togetherai/meta-llama/Llama-3.2-3B-Instruct-Turbo | togetherai/meta-llama/Meta-Llama-3-8B-Instruct-Lite | togetherai/meta-llama/Meta-Llama-3-70B-Instruct-Lite | togetherai/meta-llama/Llama-3-8b-chat-hf | togetherai/meta-llama/Llama-3-70b-chat-hf | togetherai/nvidia/Llama-3.1-Nemotron-70B-Instruct-HF | togetherai/Qwen/Qwen2.5-Coder-32B-Instruct | togetherai/Qwen/QwQ-32B-Preview | togetherai/microsoft/WizardLM-2-8x22B | togetherai/google/gemma-2-27b-it | togetherai/google/gemma-2-9b-it | togetherai/databricks/dbrx-instruct | togetherai/deepseek-ai/deepseek-llm-67b-chat | togetherai/deepseek-ai/DeepSeek-V3 | togetherai/google/gemma-2b-it | togetherai/Gryphe/MythoMax-L2-13b | togetherai/meta-llama/Llama-2-13b-chat-hf | togetherai/mistralai/Mistral-7B-Instruct-v0.1 | togetherai/mistralai/Mistral-7B-Instruct-v0.2 | togetherai/mistralai/Mistral-7B-Instruct-v0.3 | togetherai/mistralai/Mixtral-8x7B-Instruct-v0.1 | togetherai/mistralai/Mixtral-8x22B-Instruct-v0.1 | togetherai/NousResearch/Nous-Hermes-2-Mixtral-8x7B-DPO | togetherai/Qwen/Qwen2.5-7B-Instruct-Turbo | togetherai/Qwen/Qwen2.5-72B-Instruct-Turbo | togetherai/Qwen/Qwen2-72B-Instruct | togetherai/upstage/SOLAR-10.7B-Instruct-v1.0
+
+   * @param config.maxRetries - Maximum number of retry attempts (default: 3)
+   * @param config.timeout - Request timeout in milliseconds (default: 30000)
+   * @param config.temperature - Sampling temperature between 0-1 (default: 0.3)
+   * @param config.maxTokens - Maximum tokens in response (default: 1000)
+   * @param config.baseDelay - Base delay for retries in ms (default: 1000)
+   * @param config.maxDelay - Maximum delay for retries in ms (default: 10000)
+   * @example
+   * ```typescript
+   * const llm = new LLMClient({
+   *   model: "openai/gpt-4-turbo-preview",
+   *   temperature: 0.7,
+   *   maxTokens: 2000,
+   *   maxRetries: 5
+   * });
+   * ```
    */
   constructor(config: LLMClientConfig) {
     super();
