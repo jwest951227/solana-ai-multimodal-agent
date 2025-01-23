@@ -7,19 +7,24 @@ import { LogLevel, type LoggerConfig } from "../types";
 import type { z } from "zod";
 
 /**
- * A single interface for all Inputs, Outputs, and even Actions if desired.
+ * A single interface for all Inputs, Outputs.
  */
 export interface IOHandler {
   /** Unique name for this handler */
   name: string;
+
   /** "input" | "output" | (optionally "action") if you want more roles */
   role: "input" | "output";
+
   /** For input handlers with recurring scheduling */
   interval?: number;
 
+  /** The schema for the input handler */
   schema: z.ZodType<any>;
+
   /** Next run time (timestamp in ms); for input scheduling. */
   nextRun?: number;
+
   /** The main function. For inputs, no payload is typically passed. For outputs, pass the data. */
   handler: (payload?: unknown) => Promise<unknown>;
 }
