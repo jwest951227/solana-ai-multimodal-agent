@@ -6,6 +6,7 @@ import {
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
 import type { IChain } from "../../types";
+import bs58 from "bs58";
 
 export interface SolanaChainConfig {
   /**
@@ -135,7 +136,7 @@ export class SolanaChain implements IChain {
    * Implementation depends on how your private key is stored.
    */
   private createKeypairFromBase58(secretBase58: string): Keypair {
-    const secretKeyBytes = Buffer.from(require("bs58").decode(secretBase58));
+    const secretKeyBytes = Buffer.from(bs58.decode(secretBase58));
     // For Solana, a 64-byte secret is typical.
     // Another approach is if you have a 32-byte seed, etc.
     return Keypair.fromSecretKey(secretKeyBytes);

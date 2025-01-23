@@ -34,6 +34,7 @@
     "agent-twitter-client": "^0.0.16",
     "ai": "^4.1.0",
     "ajv": "^8.17.1",
+    "bs58": "^6.0.0",
     "chromadb": "^1.9.4",
     "chromadb-default-embed": "^2.13.2",
     "ethers": "^6.13.5",
