@@ -81,8 +81,12 @@ export class Processor {
     // First, classify the content
     const contentClassification = await this.classifyContent(content);
 
+    console.log("contentClassification", contentClassification);
+
     // Second, enrich content
     const enrichedContent = await this.enrichContent(content, room, new Date());
+
+    console.log("enrichedContent", enrichedContent);
 
     // Third, determine potential outputs
     const suggestedOutputs = await this.determinePotentialOutputs(
@@ -90,6 +94,8 @@ export class Processor {
       enrichedContent,
       contentClassification
     );
+
+    console.log("suggestedOutputs", suggestedOutputs);
 
     this.logger.info("Processor.process", "Suggested outputs", {
       contentId,
@@ -219,6 +225,8 @@ For each appropriate output, provide:
       llmClient: this.llmClient,
       logger: this.logger,
     });
+
+    console.log("classification", classification);
 
     return typeof classification === "string"
       ? JSON.parse(this.stripCodeBlock(classification))
