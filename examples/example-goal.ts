@@ -295,7 +295,7 @@ async function main() {
     try {
       // Plan and execute goals
       console.log(chalk.cyan("\n🤔 Planning strategy for goal..."));
-      await dreams.planStrategy(userInput);
+      await dreams.decomposeObjectiveIntoGoals(userInput);
 
       console.log(chalk.cyan("\n🎯 Executing goals..."));
 
@@ -359,7 +359,7 @@ async function main() {
 
         // Execute next goal
         try {
-          await dreams.executeNextGoal();
+          await dreams.processHighestPriorityGoal();
           stats.completed++;
         } catch (error) {
           console.error(chalk.red("\n❌ Goal execution failed:"), error);

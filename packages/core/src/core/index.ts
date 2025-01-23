@@ -1,4 +1,4 @@
-import { Core } from "./core";
+import { Orchestrator } from "./orchestrator";
 import { RoomManager } from "./room-manager";
 import { Room } from "./room";
 import { ChromaVectorDB } from "./vector-db";
@@ -16,7 +16,7 @@ import * as Utils from "./utils";
 import * as Providers from "./providers";
 
 export {
-  Core,
+  Orchestrator,
   Consciousness,
   LLMClient,
   StepManager,

@@ -9,7 +9,7 @@ import { TaskScheduler } from "./task-scheduler";
  * Core system that manages inputs, outputs, and processing.
  * Coordinates between input sources, the processor, and output handlers.
  */
-export class Core {
+export class Orchestrator {
   private readonly inputs = new Map<string, Input & { nextRun: number }>();
   private readonly outputs = new Map<string, Output>();
   private readonly logger: Logger;
@@ -42,7 +42,7 @@ export class Core {
     );
 
     this.inputScheduler = new TaskScheduler(async (task) => {
-      await this.handleInput(task);
+      await this.processInputTask(task);
     });
   }
 
@@ -51,7 +51,7 @@ export class Core {
    * If the input is recurring (has an interval), it will be scheduled to run repeatedly.
    * @param input The input configuration to register
    */
-  public registerInput(input: Input): void {
+  public subscribeToInputSource(input: Input): void {
     const now = Date.now();
     const nextRun = input.nextRun ?? now;
 
@@ -59,7 +59,7 @@ export class Core {
     this.inputs.set(input.name, scheduledInput);
     this.inputScheduler.scheduleTask(scheduledInput);
 
-    this.logger.info("Core.registerInput", "Registered input", {
+    this.logger.info("Core.subscribeToInputSource", "Registered input", {
       name: input.name,
       nextRun,
       interval: input.interval,
@@ -70,11 +70,14 @@ export class Core {
    * Removes a registered input handler.
    * @param name Name of the input to remove
    */
-  public removeInput(name: string): void {
+  public unsubscribeFromInputSource(name: string): void {
     const input = this.inputs.get(name);
     if (input) {
       this.inputs.delete(name);
-      this.logger.info("Core.removeInput", `Removed input: ${name}`);
+      this.logger.info(
+        "Core.unsubscribeFromInputSource",
+        `Removed input: ${name}`
+      );
     }
   }
 
@@ -94,10 +97,10 @@ export class Core {
    * Removes a registered output handler.
    * @param name Name of the output to remove
    */
-  public removeOutput(name: string): void {
+  public removeOutputHandler(name: string): void {
     if (this.outputs.has(name)) {
       this.outputs.delete(name);
-      this.logger.info("Core.removeOutput", `Removing output: ${name}`);
+      this.logger.info("Core.removeOutputHandler", `Removing output: ${name}`);
     }
   }
 
@@ -106,7 +109,9 @@ export class Core {
    * @param input The input to handle
    * @private
    */
-  private async handleInput(input: Input & { nextRun: number }): Promise<void> {
+  private async processInputTask(
+    input: Input & { nextRun: number }
+  ): Promise<void> {
     const { name, interval } = input;
 
     try {
@@ -139,7 +144,7 @@ export class Core {
         }
       }
     } catch (error) {
-      this.logger.error("Core.handleInput", "Error processing input", {
+      this.logger.error("Core.processInputTask", "Error processing input", {
         name,
         error,
       });
@@ -153,12 +158,15 @@ export class Core {
    * @returns The result of the output handler
    * @template T The type of data the output handler accepts
    */
-  public async executeOutput<T>(name: string, data: T): Promise<T> {
+  public async dispatchToOutput<T>(name: string, data: T): Promise<T> {
     const output = this.outputs.get(name);
     if (!output) {
       throw new Error(`No output registered with name: ${name}`);
     }
-    this.logger.debug("Core.executeOutput", "Executing output", { name, data });
+    this.logger.debug("Core.dispatchToOutput", "Executing output", {
+      name,
+      data,
+    });
 
     try {
       return data;

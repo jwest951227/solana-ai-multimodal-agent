@@ -15,7 +15,7 @@ import {
   calculateImportance,
   determineEmotions,
   generateUniqueId,
-  getValidatedLLMResponse,
+  validateLLMResponseSchema,
   injectTags,
 } from "./utils";
 import Ajv from "ajv";
@@ -75,10 +75,14 @@ export class ChainOfThought extends EventEmitter {
    * @throws Will throw an error if strategy planning fails
    * @emits goal:created - When each new goal is created
    */
-  public async planStrategy(objective: string): Promise<void> {
-    this.logger.debug("planStrategy", "Planning strategy for objective", {
-      objective,
-    });
+  public async decomposeObjectiveIntoGoals(objective: string): Promise<void> {
+    this.logger.debug(
+      "decomposeObjectiveIntoGoals",
+      "Planning strategy for objective",
+      {
+        objective,
+      }
+    );
 
     // Fetch relevant documents and experiences related to the objective
     const [relevantDocs, relevantExperiences] = await Promise.all([
@@ -86,10 +90,14 @@ export class ChainOfThought extends EventEmitter {
       this.memory.findSimilarEpisodes(objective, 3),
     ]);
 
-    this.logger.debug("planStrategy", "Retrieved relevant context", {
-      docCount: relevantDocs.length,
-      expCount: relevantExperiences.length,
-    });
+    this.logger.debug(
+      "decomposeObjectiveIntoGoals",
+      "Retrieved relevant context",
+      {
+        docCount: relevantDocs.length,
+        expCount: relevantExperiences.length,
+      }
+    );
 
     // Build context from relevant documents
     const gameStateContext = relevantDocs
@@ -171,16 +179,20 @@ export class ChainOfThought extends EventEmitter {
     });
 
     try {
-      const goals = await getValidatedLLMResponse({
+      const goals = await validateLLMResponseSchema({
         prompt,
         systemPrompt:
           "You are a strategic planning system that creates hierarchical goal structures.",
         schema: goalPlanningSchema,
         maxRetries: 3,
         onRetry: (error, attempt) => {
-          this.logger.error("planStrategy", `Attempt ${attempt} failed`, {
-            error,
-          });
+          this.logger.error(
+            "decomposeObjectiveIntoGoals",
+            `Attempt ${attempt} failed`,
+            {
+              error,
+            }
+          );
         },
         llmClient: this.llmClient,
         logger: this.logger,
@@ -209,14 +221,18 @@ export class ChainOfThought extends EventEmitter {
       }
 
       // Add a planning step
-      this.addStep(
+      this.recordReasoningStep(
         `Strategy planned for objective: ${objective}`,
         "planning",
         ["strategy-planning"],
         { goals }
       );
     } catch (error) {
-      this.logger.error("planStrategy", "Failed to plan strategy", { error });
+      this.logger.error(
+        "decomposeObjectiveIntoGoals",
+        "Failed to plan strategy",
+        { error }
+      );
       throw error;
     }
   }
@@ -229,7 +245,7 @@ export class ChainOfThought extends EventEmitter {
    * @returns An array of Goal objects sorted by priority
    * @internal
    */
-  private getPrioritizedGoals(): Goal[] {
+  private getReadyGoalsByPriority(): Goal[] {
     const readyGoals = this.goalManager.getReadyGoals();
     const horizonPriority: Record<string, number> = {
       short: 3,
@@ -260,7 +276,7 @@ export class ChainOfThought extends EventEmitter {
    *  - missing_requirements: List of requirements that are not met
    *  - incompleteState: Optional flag indicating if state info is incomplete
    */
-  private async canExecuteGoal(goal: Goal): Promise<{
+  private async validateGoalPrerequisites(goal: Goal): Promise<{
     possible: boolean;
     reason: string;
     missing_requirements: string[];
@@ -323,7 +339,7 @@ export class ChainOfThought extends EventEmitter {
         })
         .strict();
 
-      const response = await getValidatedLLMResponse<{
+      const response = await validateLLMResponseSchema<{
         possible: boolean;
         reason: string;
         missing_requirements: string[];
@@ -334,9 +350,13 @@ export class ChainOfThought extends EventEmitter {
         schema,
         maxRetries: 3,
         onRetry: (error, attempt) => {
-          this.logger.warn("canExecuteGoal", `Retry attempt ${attempt}`, {
-            error,
-          });
+          this.logger.warn(
+            "validateGoalPrerequisites",
+            `Retry attempt ${attempt}`,
+            {
+              error,
+            }
+          );
         },
         llmClient: this.llmClient,
         logger: this.logger,
@@ -345,7 +365,7 @@ export class ChainOfThought extends EventEmitter {
       return response;
     } catch (error) {
       this.logger.error(
-        "canExecuteGoal",
+        "validateGoalPrerequisites",
         "Failed to check goal executability",
         { error }
       );
@@ -371,7 +391,10 @@ export class ChainOfThought extends EventEmitter {
    * @throws Will throw an error if goal refinement fails after max retries
    * @internal
    */
-  private async refineGoal(goal: Goal, maxRetries: number = 3): Promise<void> {
+  private async breakdownGoalIntoSubtasks(
+    goal: Goal,
+    maxRetries: number = 3
+  ): Promise<void> {
     const [relevantDocs, relevantExperiences, blackboardState] =
       await Promise.all([
         this.memory.findSimilarDocuments(goal.description, 5),
@@ -430,16 +453,20 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     try {
-      const subGoals = await getValidatedLLMResponse<RefinedGoal[]>({
+      const subGoals = await validateLLMResponseSchema<RefinedGoal[]>({
         prompt,
         systemPrompt:
           "You are a goal refinement system that breaks down complex goals into actionable steps. Return only valid JSON array matching the schema.",
         schema,
         maxRetries,
         onRetry: (error, attempt) => {
-          this.logger.error("refineGoal", `Attempt ${attempt} failed`, {
-            error,
-          });
+          this.logger.error(
+            "breakdownGoalIntoSubtasks",
+            `Attempt ${attempt} failed`,
+            {
+              error,
+            }
+          );
         },
         llmClient: this.llmClient,
         logger: this.logger,
@@ -480,38 +507,44 @@ export class ChainOfThought extends EventEmitter {
    * @emits goal:blocked - When a goal cannot be executed
    * @returns Promise that resolves when execution is complete
    */
-  public async executeNextGoal(): Promise<void> {
-    const prioritizedGoals = this.getPrioritizedGoals();
+  public async processHighestPriorityGoal(): Promise<void> {
+    const prioritizedGoals = this.getReadyGoalsByPriority();
 
     if (!prioritizedGoals.length) {
-      this.logger.debug("executeNextGoal", "No ready goals available");
+      this.logger.debug(
+        "processHighestPriorityGoal",
+        "No ready goals available"
+      );
       return;
     }
 
     for (const currentGoal of prioritizedGoals) {
-      const { possible, reason, incompleteState } = await this.canExecuteGoal(
-        currentGoal
-      );
+      const { possible, reason, incompleteState } =
+        await this.validateGoalPrerequisites(currentGoal);
 
       // ------------------------------------------------------------------
-      // Decide how to handle "false" from canExecuteGoal
+      // Decide how to handle "false" from validateGoalPrerequisites
       // ------------------------------------------------------------------
       if (!possible) {
         // If it's incomplete state and short-term,
         // let's try it anyway.
         if (incompleteState && currentGoal.horizon === "short") {
           this.logger.warn(
-            "executeNextGoal",
+            "processHighestPriorityGoal",
             `Requirements are incomplete for short-term goal "${currentGoal.description}". Attempting anyway...`,
             { goalId: currentGoal.id, reason }
           );
         }
         // If it's incomplete state but not short-term -> refine
         else if (incompleteState && currentGoal.horizon !== "short") {
-          this.logger.debug("executeNextGoal", "Attempting to refine goal", {
-            goalId: currentGoal.id,
-          });
-          await this.refineGoal(currentGoal);
+          this.logger.debug(
+            "processHighestPriorityGoal",
+            "Attempting to refine goal",
+            {
+              goalId: currentGoal.id,
+            }
+          );
+          await this.breakdownGoalIntoSubtasks(currentGoal);
           continue; // move on to the next goal
         }
         // Otherwise, block as usual
@@ -538,9 +571,9 @@ export class ChainOfThought extends EventEmitter {
         await this.think(currentGoal.description);
 
         // Check success criteria
-        const success = await this.validateGoalSuccess(currentGoal);
+        const success = await this.evaluateGoalCompletion(currentGoal);
         if (success) {
-          await this.handleGoalCompletion(currentGoal);
+          await this.processGoalSuccess(currentGoal);
         } else {
           const blockReason = `Goal validation failed: Success criteria not met for "${currentGoal.description}"`;
           this.goalManager.blockGoalHierarchy(currentGoal.id, blockReason);
@@ -555,27 +588,27 @@ export class ChainOfThought extends EventEmitter {
         break;
       } catch (error) {
         this.logger.error(
-          "executeNextGoal",
+          "processHighestPriorityGoal",
           "Unexpected error during goal execution",
           {
             goalId: currentGoal.id,
             error,
           }
         );
-        await this.handleGoalFailure(currentGoal, error);
+        await this.processGoalFailure(currentGoal, error);
         // Go on to the next goal
         continue;
       }
     }
   }
 
-  private async handleGoalCompletion(goal: Goal): Promise<void> {
+  private async processGoalSuccess(goal: Goal): Promise<void> {
     this.goalManager.updateGoalStatus(goal.id, "completed");
 
     // Update context based on goal completion
-    const contextUpdate = await this.determineContextUpdates(goal);
+    const contextUpdate = await this.analyzeStateChangesAfterGoal(goal);
     if (contextUpdate) {
-      this.mergeContext(contextUpdate);
+      this.updateContextState(contextUpdate);
 
       // Store relevant state changes in blackboard
       const timestamp = Date.now();
@@ -634,7 +667,7 @@ export class ChainOfThought extends EventEmitter {
    * @returns A partial context object with only the fields that need updating, or null if analysis fails
    * @internal
    */
-  private async determineContextUpdates(
+  private async analyzeStateChangesAfterGoal(
     goal: Goal
   ): Promise<Partial<ChainOfThoughtContext> | null> {
     const blackboardState = await this.getBlackboardState();
@@ -663,7 +696,7 @@ export class ChainOfThought extends EventEmitter {
       return JSON.parse(response.toString());
     } catch (error) {
       this.logger.error(
-        "determineContextUpdates",
+        "analyzeStateChangesAfterGoal",
         "Failed to determine context updates",
         { error }
       );
@@ -683,7 +716,7 @@ export class ChainOfThought extends EventEmitter {
    * @param error - The error that caused the failure
    * @internal
    */
-  private async handleGoalFailure(
+  private async processGoalFailure(
     goal: Goal,
     error: Error | unknown
   ): Promise<void> {
@@ -713,7 +746,7 @@ export class ChainOfThought extends EventEmitter {
    * @returns A boolean indicating whether the goal was successfully achieved
    * @internal
    */
-  private async validateGoalSuccess(goal: Goal): Promise<boolean> {
+  private async evaluateGoalCompletion(goal: Goal): Promise<boolean> {
     const blackboardState = await this.getBlackboardState();
 
     const prompt = `
@@ -739,7 +772,7 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     try {
-      const response = await getValidatedLLMResponse({
+      const response = await validateLLMResponseSchema({
         prompt,
         systemPrompt:
           "You are a goal validation system that carefully checks success criteria against the current context.",
@@ -753,20 +786,22 @@ export class ChainOfThought extends EventEmitter {
       });
 
       console.log(
-        "validateGoalSuccess response: =================================",
+        "evaluateGoalCompletion response: =================================",
         response
       );
 
       if (response.success) {
-        this.addStep(
+        this.recordReasoningStep(
           `Goal validated as successful: ${response.reason}`,
           "system",
           ["goal-validation"]
         );
       } else {
-        this.addStep(`Goal validation failed: ${response.reason}`, "system", [
-          "goal-validation",
-        ]);
+        this.recordReasoningStep(
+          `Goal validation failed: ${response.reason}`,
+          "system",
+          ["goal-validation"]
+        );
       }
 
       // Record the outcome score
@@ -778,7 +813,7 @@ export class ChainOfThought extends EventEmitter {
 
       return response.success;
     } catch (error) {
-      this.logger.error("validateGoalSuccess", "Goal validation failed", {
+      this.logger.error("evaluateGoalCompletion", "Goal validation failed", {
         error,
       });
       return false;
@@ -800,10 +835,10 @@ export class ChainOfThought extends EventEmitter {
    *
    * @example
    * ```ts
-   * chain.addStep("Analyzing user request", "reasoning", ["analysis"]);
+   * chain.recordReasoningStep("Analyzing user request", "reasoning", ["analysis"]);
    * ```
    */
-  public addStep(
+  public recordReasoningStep(
     content: string,
     type: StepType = "action",
     tags?: string[],
@@ -836,14 +871,16 @@ export class ChainOfThought extends EventEmitter {
    *
    * @example
    * ```ts
-   * chain.mergeContext({
+   * chain.updateContextState({
    *   worldState: "Updated world state",
    *   newProperty: "New value"
    * });
    * ```
    */
-  public mergeContext(newContext: Partial<ChainOfThoughtContext>): void {
-    this.logger.debug("mergeContext", "Merging new context", { newContext });
+  public updateContextState(newContext: Partial<ChainOfThoughtContext>): void {
+    this.logger.debug("updateContextState", "Merging new context", {
+      newContext,
+    });
 
     this.context = {
       ...this.context,
@@ -861,11 +898,11 @@ export class ChainOfThought extends EventEmitter {
    *
    * @example
    * ```ts
-   * chain.snapshotContext(); // Creates a snapshot of current context state
+   * chain.saveContextSnapshot(); // Creates a snapshot of current context state
    * ```
    */
-  public snapshotContext(): void {
-    this.logger.debug("snapshotContext", "Creating context snapshot");
+  public saveContextSnapshot(): void {
+    this.logger.debug("saveContextSnapshot", "Creating context snapshot");
 
     const snapshot = JSON.parse(JSON.stringify(this.context));
     this.snapshots.push(snapshot);
@@ -877,17 +914,17 @@ export class ChainOfThought extends EventEmitter {
    * @remarks
    * Returns an array containing all historical snapshots of the context state,
    * in chronological order. Each snapshot represents the complete context state
-   * at the time it was captured using {@link snapshotContext}.
+   * at the time it was captured using {@link saveContextSnapshot}.
    *
    * @returns An array of {@link ChainOfThoughtContext} objects representing the historical snapshots
    *
    * @example
    * ```ts
-   * const snapshots = chain.getSnapshots();
+   * const snapshots = chain.getContextHistory();
    * console.log(`Number of snapshots: ${snapshots.length}`);
    * ```
    */
-  public getSnapshots(): ChainOfThoughtContext[] {
+  public getContextHistory(): ChainOfThoughtContext[] {
     return this.snapshots;
   }
 
@@ -962,7 +999,7 @@ export class ChainOfThought extends EventEmitter {
     this.logger.debug("executeAction", "Executing action", { action });
     this.emit("action:start", action);
 
-    const actionStep = this.addStep(
+    const actionStep = this.recordReasoningStep(
       `Executing action: ${action.type}`,
       "action",
       ["action-execution"],
@@ -1004,7 +1041,7 @@ export class ChainOfThought extends EventEmitter {
       });
 
       // Store in context
-      this.mergeContext({
+      this.updateContextState({
         actionHistory: {
           ...(this.context.actionHistory || {}),
           [Date.now()]: {
@@ -1184,13 +1221,15 @@ ${availableOutputs
       });
 
       // Initialize with user query
-      this.addStep(`User Query: ${userQuery}`, "task", ["user-query"]);
+      this.recordReasoningStep(`User Query: ${userQuery}`, "task", [
+        "user-query",
+      ]);
 
       let currentIteration = 0;
       let isComplete = false;
 
       // Get initial plan and actions
-      const initialResponse = await getValidatedLLMResponse({
+      const initialResponse = await validateLLMResponseSchema({
         prompt: this.buildPrompt({ query: userQuery }),
         schema: z.object({
           plan: z.string().optional(),
@@ -1216,9 +1255,11 @@ ${availableOutputs
 
       // Add initial plan as a step if provided
       if (initialResponse.plan) {
-        this.addStep(`Initial plan: ${initialResponse.plan}`, "planning", [
-          "initial-plan",
-        ]);
+        this.recordReasoningStep(
+          `Initial plan: ${initialResponse.plan}`,
+          "planning",
+          ["initial-plan"]
+        );
       }
 
       while (
@@ -1254,7 +1295,7 @@ ${availableOutputs
             );
           }
 
-          const completion = await getValidatedLLMResponse({
+          const completion = await validateLLMResponseSchema({
             prompt: `${this.buildPrompt({ result })}
             ${JSON.stringify({
               query: userQuery,
@@ -1325,7 +1366,7 @@ ${availableOutputs
             }
 
             if (isComplete || !completion.shouldContinue) {
-              this.addStep(
+              this.recordReasoningStep(
                 `Goal ${isComplete ? "achieved" : "failed"}: ${
                   completion.reason
                 }`,
@@ -1335,7 +1376,7 @@ ${availableOutputs
               this.emit("think:complete", { query: userQuery });
               return;
             } else {
-              this.addStep(
+              this.recordReasoningStep(
                 `Action completed, continuing execution: ${completion.reason}`,
                 "system",
                 ["continuation"]
@@ -1374,14 +1415,14 @@ ${availableOutputs
    * @param result - The result of the action, either as a string or structured data
    * @returns A concise, human-readable summary of the action outcome
    */
-  private async formatActionOutcome(
+  private async summarizeActionResult(
     action: string,
     result: string | Record<string, any>
   ): Promise<string> {
     const resultStr =
       typeof result === "string" ? result : JSON.stringify(result, null, 2);
 
-    const response = await getValidatedLLMResponse({
+    const response = await validateLLMResponseSchema({
       prompt: `
       # Action Result Summary
       Summarize this action result in a clear, concise way
@@ -1428,7 +1469,7 @@ ${availableOutputs
     importance?: number
   ): Promise<void> {
     try {
-      const formattedOutcome = await this.formatActionOutcome(action, result);
+      const formattedOutcome = await this.summarizeActionResult(action, result);
       const calculatedImportance =
         importance ?? calculateImportance(formattedOutcome);
       const actionWithResult = `${action} RESULT: ${result}`;

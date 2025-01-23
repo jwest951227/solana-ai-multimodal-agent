@@ -7,7 +7,7 @@
  * - Process inputs through a character-based personality
  */
 
-import { Core } from "../packages/core/src/core/core";
+import { Orchestrator } from "../packages/core/src/core/orchestrator";
 import { TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
@@ -45,7 +45,7 @@ async function main() {
   );
 
   // Initialize core system
-  const core = new Core(roomManager, vectorDb, processor, {
+  const core = new Orchestrator(roomManager, vectorDb, processor, {
     level: loglevel,
     enableColors: true,
     enableTimestamp: true,
@@ -69,7 +69,7 @@ async function main() {
   });
 
   // Register input handler for Twitter mentions
-  core.registerInput({
+  core.subscribeToInputSource({
     name: "twitter_mentions",
     handler: async () => {
       console.log(chalk.blue("🔍 Checking Twitter mentions..."));
@@ -93,7 +93,7 @@ async function main() {
   });
 
   // Register input handler for autonomous thoughts
-  core.registerInput({
+  core.subscribeToInputSource({
     name: "consciousness_thoughts",
     handler: async () => {
       console.log(chalk.blue("🧠 Generating thoughts..."));
@@ -156,10 +156,10 @@ async function main() {
 
     // Clean up resources
     await consciousness.stop();
-    core.removeInput("twitter_mentions");
-    core.removeInput("consciousness_thoughts");
-    core.removeOutput("twitter_reply");
-    core.removeOutput("twitter_thought");
+    core.unsubscribeFromInputSource("twitter_mentions");
+    core.unsubscribeFromInputSource("consciousness_thoughts");
+    core.removeOutputHandler("twitter_reply");
+    core.removeOutputHandler("twitter_thought");
 
     console.log(chalk.green("✅ Shutdown complete"));
     process.exit(0);

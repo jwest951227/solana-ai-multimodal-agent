@@ -125,7 +125,7 @@ export const calculateImportance = (result: string): number => {
   return Math.min(termScore + complexityScore, 1);
 };
 
-export const getValidatedLLMResponse = async <T>({
+export const validateLLMResponseSchema = async <T>({
   prompt,
   systemPrompt,
   schema,
@@ -168,7 +168,7 @@ export const getValidatedLLMResponse = async <T>({
         parsed = JSON.parse(responseText);
       } catch (parseError) {
         logger.error(
-          "getValidatedLLMResponse",
+          "validateLLMResponseSchema",
           "Failed to parse LLM response as JSON",
           {
             response: responseText,
@@ -182,7 +182,7 @@ export const getValidatedLLMResponse = async <T>({
 
       if (!validate(parsed)) {
         logger.error(
-          "getValidatedLLMResponse",
+          "validateLLMResponseSchema",
           "Response failed schema validation",
           {
             errors: validate.errors,
@@ -202,7 +202,7 @@ export const getValidatedLLMResponse = async <T>({
       return parsed;
     } catch (error) {
       logger.error(
-        "getValidatedLLMResponse",
+        "validateLLMResponseSchema",
         `Attempt ${attempts + 1} failed`,
         { error }
       );

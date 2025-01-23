@@ -13,7 +13,7 @@ import type {
 } from "../types";
 import { LogLevel } from "../types";
 
-import { getValidatedLLMResponse } from "./utils";
+import { validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
@@ -191,7 +191,7 @@ For each appropriate output, provide:
 `;
 
     try {
-      return (await getValidatedLLMResponse({
+      return (await validateLLMResponseSchema({
         prompt,
         systemPrompt:
           "You are an expert system that analyzes content and suggests appropriate automated responses. You are precise and careful to ensure all data matches the required schemas.",
@@ -232,7 +232,7 @@ For each appropriate output, provide:
   
 `;
 
-    const classification = await getValidatedLLMResponse({
+    const classification = await validateLLMResponseSchema({
       prompt,
       systemPrompt: "You are an expert content classifier.",
       schema: z.object({
@@ -293,7 +293,7 @@ Return a JSON object with the following fields:
 `;
 
     try {
-      const result = await getValidatedLLMResponse({
+      const result = await validateLLMResponseSchema({
         prompt,
         systemPrompt: this.character.voice.tone,
         schema: z.object({
