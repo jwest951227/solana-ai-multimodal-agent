@@ -1,5 +1,5 @@
 {
-    "name": "@daydreams/core",
+    "name": "@daydreamsai/core",
     "module": "index.ts",
     "version": "0.0.0",
     "type": "module",
