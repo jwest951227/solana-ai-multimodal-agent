@@ -1,64 +1,178 @@
 ![Daydreams](./banner.png)
 
-# Daydreams
+# Daydreams - for Defai, games and more
 
-Daydreams is a generative agent library for executing anything onchain. It is chain agnostic and can be used to perform onchain tasks - including play any onchain game - by simply injecting context. Base, Solana, Ethereum, Starknet, etc
+Daydreams is a generative agent library for executing anything onchain. It is chain agnostic and can be used to perform onchain tasks - including play any onchain game - by simply injecting context. Base, Solana, Ethereum, Starknet, etc.
 
-It is designed to be as lite as possible. Keep it simple and powerful.
+It is designed to be as lite as possible while remaining powerful and flexible.
+
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Examples](#examples)
+  - [Basic Example](#basic-example)
+  - [Goal-Based Example](#goal-based-example)
+  - [Twitter Bot Example](#twitter-bot-example)
+  - [API Example](#api-example)
+- [How It Works](#how-it-works)
+  - [Context](#context)
+  - [Actions](#actions)
+  - [Goals](#goals)
+  - [Monitor Progress](#monitor-progress)
+- [Architecture](#architecture)
+  - [Core Concepts](#core-concepts)
+  - [Protocol Design](#protocol-design)
+- [Development](#development)
+- [Roadmap](#roadmap)
+- [Contributors](#contributors)
 
 ## Quick Start
 
-You must have bun & Docker installed. Make sure you have the Docker desktop app installed and running.
+Prerequisites:
+
+- Node.js 16+
+- pnpm
+- Bun
+- Docker Desktop
 
 ```bash
-pnpm i
+# Install dependencies
+pnpm install
 
+# Copy environment variables
 cp .env.example .env
 
+# Start Docker services (ChromaDB)
 sh ./docker.sh
+```
 
-# Run the goal-based example. This will play mock Eternum with a goal manager and execute tasks.
+## Examples
+
+The project includes several example implementations demonstrating different use cases:
+
+### Basic Example
+
+A simple CLI agent that can execute tasks using Chain of Thought:
+
+```bash
+# Run basic example
+bun task
+```
+
+### Goal-Based Example
+
+Demonstrates hierarchical goal planning and execution:
+
+```bash
+# Run goal-based example
 bun goal
 ```
 
-## How It Works
+### Twitter Bot Example
 
-1. **Context**: Define your game context as a simple text/JSON file that describes the game rules, state, and available actions.
+A Twitter bot that can monitor mentions and generate autonomous thoughts:
 
-   This should be a JSON object that contains the game state and rules. Along with queries and how to execute actions.
-
-```typescript
-{
-  worldState: "Current game state and rules...",
-}
+```bash
+# Run Twitter bot example
+bun twitter
 ```
 
-2. **Actions**: Register the actions your agent can take. Each action has a description, example, and validation schema:
+### API Example
+
+Shows how to integrate with external APIs:
+
+```bash
+# Run API example
+bun api
+```
+
+## Concepts
+
+Daydreams is built around the following concepts:
+
+- Orchestrator
+- Handlers
+- Goals
+- Memory
+- Chain of Thought
+
+### Orchestrator
+
+The Orchestrator is the central component that manages the flow of data through the system. It is responsible for:
+
+- Registering handlers
+- Routing data through the system
+- Scheduling recurring tasks
+- Maintaining the autonomous flow
+- Calling the Chain of Thought
+
+### Handlers
+
+Handlers are the building blocks of the system. They are responsible for processing data and producing outputs. They are registered with the Orchestrator and are chained together in an autonomous flow.
+
+Register handlers for inputs, outputs, and actions using `registerIOHandler`. Each handler has a role, description, schema, and handler function:
+
+- **Input Handlers**: Process incoming data (e.g., user messages, API webhooks)
+- **Action Handlers**: Execute operations and return results (e.g., API calls, database queries)
+- **Output Handlers**: Produce side effects (e.g., sending messages, updating UI)
 
 ```typescript
-dreams.registerAction(
-  "EXECUTE_TRANSACTION",
-  starknetTransactionAction,
-  {
-    description: "Execute a transaction on the Starknet blockchain",
-    example: JSON.stringify({
-      contractAddress: "0x1234...",
-      entrypoint: "execute",
-      calldata: [1, 2, 3],
-    }),
+// Register an action handler
+orchestrator.registerIOHandler({
+  name: "universalApiCall",
+  role: "action",
+  schema: z.object({
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+    url: z.string().url(),
+    headers: z.record(z.string()).optional(),
+    body: z.union([z.string(), z.record(z.any())]).optional(),
+  }),
+  handler: async (payload) => {
+    // Handler implementation
+    const response = await fetch(/* ... */);
+    return response;
   },
-  validationSchema
-);
+});
+
+// Register an input handler
+orchestrator.registerIOHandler({
+  name: "user_chat",
+  role: "input",
+  schema: z.object({
+    content: z.string(),
+    userId: z.string().optional(),
+  }),
+  handler: async (payload) => {
+    return payload;
+  },
+});
+
+// Register an output handler
+orchestrator.registerIOHandler({
+  name: "ui_chat_reply",
+  role: "output",
+  schema: z.object({
+    userId: z.string().optional(),
+    message: z.string(),
+  }),
+  handler: async (payload) => {
+    console.log(`Reply to user ${payload.userId}: ${payload.message}`);
+  },
+});
 ```
 
-3. **Goals**: The agent uses Chain of Thought processing to:
+### Goals
+
+The agent uses Chain of Thought processing to:
 
 - Plan strategies for achieving goals
 - Break down complex goals into subgoals
 - Execute actions to accomplish goals
 - Learn from experiences and store knowledge
 
-4. **Monitor Progress**: Subscribe to events to track the agent's thinking and actions:
+### Monitor Progress
+
+Subscribe to events to track the agent's thinking and actions:
 
 ```typescript
 dreams.on("think:start", ({ query }) => {
@@ -73,157 +187,128 @@ dreams.on("action:complete", ({ action, result }) => {
 });
 ```
 
-_Design directions:_
+### Protocol Design
 
-- Daydreams should be as 'lite' as possible. We want to keep the codebase as small as possible, and have the agent dynamically generate the code it needs to play the game.
-- Daydreams should be as 'composable' as possible. It should be easy to compose together functions and tools.
+The system consists of several key components:
 
-> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration.
+1. **Context Layers**
 
-See the [POC](https://x.com/0xtechnoir/status/1869835800088907938) website for more information.
+   - Game/Application State
+   - Historical Data
+   - Execution Context
 
-Roadmap (not in order):
+2. **Chain of Thought Kernel**
+
+   - Reasoning Engine
+   - Memory Integration
+   - Action Planning
+
+3. **Vector Database**
+
+   - Experience Storage
+   - Knowledge Retrieval
+   - Similarity Search
+
+4. **Swarm Rooms**
+   - Multi-Agent Collaboration
+   - Knowledge Sharing
+   - Federated Learning
+
+### System Flow
+
+```mermaid
+graph TD
+    subgraph Orchestrator
+        subgraph Handlers
+            I[Input Handlers]
+            A[Action Handlers]
+            O[Output Handlers]
+        end
+
+        I --> P[Processor]
+        P --> A
+        P --> O
+        A --> CoT[Chain of Thought]
+        CoT --> A
+        A --> O
+        O --> I
+        A --> I
+    end
+
+    subgraph Memory System
+        VM[Vector Memory] <--> CoT
+        RM[Room Manager] <--> VM
+    end
+
+    subgraph Goal System
+        GM[Goal Manager] --> CoT
+        CoT --> GM
+    end
+
+    subgraph External Systems
+        API[APIs] <--> A
+        UI[User Interface] --> I
+        UI <--> O
+    end
+
+    style Orchestrator fill:#abf,stroke:#333,stroke-width:4px
+    style Memory System fill:#abf,stroke:#333,stroke-width:2px
+```
+
+The system works through several coordinated components:
+
+1. **Orchestrator**: The central coordinator that:
+
+   - Manages input/output/action handlers
+   - Routes data through the system
+   - Schedules recurring tasks
+   - Maintains the autonomous flow
+
+2. **Chain of Thought (CoT)**: The reasoning engine that:
+
+   - Processes complex queries asked - it can be called directly like in the examples or through the orchestrator
+   - Makes decisions based on goals
+   - Determines required actions
+   - Learns from outcomes
+
+3. **Memory System**:
+
+   - Vector Memory stores experiences and knowledge
+   - Room Manager organizes conversations and contexts
+   - Enables retrieval of relevant past experiences
+
+4. **Goal System**:
+   - Breaks down complex objectives
+   - Manages dependencies between goals
+   - Tracks progress and completion
+   - Adapts strategies based on outcomes
+
+This architecture allows for:
+
+- Flexible composition of handlers
+- Autonomous decision-making
+- Contextual memory and learning
+- Goal-oriented behavior
+
+Each component can be used independently or composed together for more complex behaviors. The system is designed to be extensible, allowing new handlers and components to be added as needed.
+
+## Development
+
+Design principles:
+
+- **Lightweight**: Keep the codebase small and focused
+- **Composable**: Easy to combine functions and tools
+- **Extensible**: Simple to add new capabilities
+
+## Roadmap
 
 - [x] Chain of Thought
 - [ ] Context Layers
 - [ ] Graph memory system
 - [ ] Swarm Rooms
-- [ ] Create 'sleeves' abstract. Allowing dynamic context generation for any game or app.
+- [ ] Create 'sleeves' abstract for dynamic context generation
 
-## 1. Overview
-
-Daydreams provides a blueprint for creating autonomous, onchain game agents—programmatic entities that interpret game states, recall historical data, and refine strategies over time. By leveraging vector databases as long-term memory and multi-agent swarm rooms for collective knowledge sharing, Daydreams fosters rapid, continuous improvement among agents.
-
-- **Seamless Dojo Integration**: Built to work smoothly with the Dojo onchain game engine.
-- **Low Configuration Overhead**: Minimal steps required to plug into any Dojo-based onchain game.
-
-### 1.1 Dojo Integration
-
-Daydream uses a [MCP](https://github.com/modelcontextprotocol) for exposing context natively to the agent. Developers only have to implement game guides and the agent will be able to query the game state and execute actions accordingly.
-
-### 1.2 Event Driven CoT
-
-Daydreams uses an event driven CoT kernel where all thoughts processed.
-
-![bg](./daydream.png)
-
-## 2. Motivation
-
-### 2.1 Why Games?
-
-Games present complex, high-stakes environments that challenge agents to adapt rapidly, plan strategically, and solve problems creatively. Success in these arenas demonstrates a capability for:
-
-- **Uncertainty Handling**: Dealing with incomplete or changing information.
-- **Optimal Decision-Making**: Balancing long-term goals with short-term opportunities.
-- **Real-Time Adaptation**: Responding to adversarial or evolving game states.
-
-If such skills prove extensible beyond games, it brings us closer to Artificial General Intelligence (AGI).
-
-### 2.2 Why Onchain Games?
-
-Onchain games embed a profit motive in the environment—agents are economically incentivized to maximize onchain rewards like tokens, NFTs, or other assets. This introduces a real-world gain function that drives agent improvement.
-
-Advantages:
-
-- **Direct Economic Feedback**: Every action has a measurable onchain outcome.
-- **Transparent State**: Game data can be reliably queried via standardized, open interfaces.
-- **Community Adoption**: A financial reward structure encourages fast adoption and fosters network effects.
-
-## 3. Core Concepts
-
-### Onchain Games as Standardized Environments
-
-- **Uniform JSON/RPC Schemas**: Onchain games expose consistent endpoints detailing states, actions, and player data.
-- **Low Integration Overhead**: Agents can parse and generate valid actions using these standardized schemas.
-
-### Agent Self-Improvement and Incentives
-
-- **Economic Drivers**: Tie agent success directly to assets (tokens/NFTs). This fosters relentless optimization.
-- **Adaptive Learning**: Agents store past successes as vector embeddings, guiding future decisions toward higher expected value.
-
-### Chain of Thought (CoT)
-
-- **Contextual Reasoning**: Agents synthesize current state, historical data, and known tactics to produce well-informed moves.
-- **Dynamic Queries**: Agents fetch additional insights from SQL-like databases or other APIs on demand.
-- **Memory Retrieval**: Vector embeddings help recall similar scenarios to refine strategies.
-
-## 4. Protocol Design
-
-### 4.1 Modular Architecture
-
-The Daydreams protocol is intentionally open and modular, enabling easy customization and extension. You can integrate any or all components depending on your use case.
-
-#### Context Layers
-
-##### Game Context
-
-- Represents the real-time onchain state: entities, resources, turn counters, etc.
-- Retrieved via RPC calls to smart contracts or sidechain services.
-
-##### SQL Context
-
-- Historical gameplay logs stored in a relational database (e.g., moves, outcomes, player_stats, world_events).
-- Agents query these tables for patterns and data-driven insights.
-
-##### Execution Context
-
-- Provides transactional details on how to interact with the blockchain.
-- Includes RPC endpoints, transaction formatting, and gas/fee considerations.
-- Ensures agent actions can be reliably and safely executed onchain.
-
-#### Chain of Thought (CoT) Kernel
-
-- The reasoning engine that integrates data from all context layers.
-- Dynamically queries SQL and vector databases to augment decision-making.
-- Evaluates possible moves and commits the best action.
-
-![bg](./chain.png)
-
-#### Embedded Vector Database (Long-Term Memory)
-
-- **Storage**: Each completed CoT is embedded into a vector representing the agent's reasoning steps, decisions, and outcomes.
-- **Retrieval**: Similarity-based lookups provide relevant historical insights for new situations.
-- **Feedback Loops**: Successful outcomes incrementally boost the weight of their associated embeddings.
-
-#### Swarm Rooms (Multi-Agent Collaboration)
-
-- **Knowledge Sharing**: Agents publish their successful CoTs in a shared "swarm room."
-- **Federated Memory Updates**: Other agents can subscribe and incorporate these embeddings into their own vector DBs, accelerating group learning.
-- **Privacy Controls**: Agents may choose to share only certain data or employ cryptographic proofs to validate the authenticity of shared embeddings. Eg, agents will sign their messages and will be able to rank each others CoT
-
-#### Integration with External Agents
-
-- **Plug-and-Play**: Daydreams can be extended and integrated with any agent infrastructure (e.g., Eliza, Rig).
-
-## 5. Example Daydream Flow
-
-### Initialization
-
-- A Daydream agent boots up, loading its vector DB and connecting to the game's SQL logs.
-
-### Acquire Context
-
-- Agent queries the Game Context (onchain state) to get the current turn number, player holdings, and any relevant events.
-- Agent optionally queries the SQL Context to retrieve historical moves/outcomes.
-
-### Inference (CoT Kernel)
-
-- Agent compares the current game state against similar historical embeddings in the vector DB.
-- Agent formulates a plan using the retrieved best practices, factoring in any real-time changes or newly discovered strategies.
-
-### Action Execution
-
-- Agent formats a transaction or game action payload according to the Execution Context.
-- Action is sent onchain (or to the relevant sidechain/RPC endpoint).
-
-### Post-Action Feedback
-
-- The agent records the outcome of its move (e.g., resource gain/loss, updated game state).
-- This new CoT embedding is stored in the vector DB and, if successful, can be published to a swarm room (telegram or elsewhere)
-
-### Swarm Collaboration
-
-- Other agents subscribe, retrieving the newly shared CoT embedding and integrating it into their memory store, thus spreading successful strategies network-wide.
+> ⚠️ **Warning**: Daydreams is currently in pre-alpha stage, we are looking for feedback and collaboration.
 
 ## Contributors
 
