@@ -155,6 +155,7 @@ export class ChainOfThought extends EventEmitter {
       - short_term: Immediate actionable goals
       
       # Each goal must include:
+      - id: Unique temporary ID used in dependencies
       - description: Clear goal statement
       - success_criteria: Array of specific conditions for completion
       - dependencies: Array of prerequisite goal IDs (empty for initial goals)
@@ -165,6 +166,7 @@ export class ChainOfThought extends EventEmitter {
     `;
 
     const goalSchema = z.object({
+      id: z.string(),
       description: z.string(),
       success_criteria: z.array(z.string()),
       dependencies: z.array(z.string()),
@@ -199,34 +201,76 @@ export class ChainOfThought extends EventEmitter {
         logger: this.logger,
       });
 
-      // Create goals in order: long-term first, then medium, then short
-      for (const horizon of [
-        "long_term",
-        "medium_term",
-        "short_term",
-      ] as const) {
-        for (const goalData of goals[horizon]) {
-          const newGoal = this.goalManager.addGoal({
-            horizon: horizon.split("_")[0] as HorizonType,
-            status: "pending",
-            ...goalData,
-            created_at: Date.now(),
-          });
+      const allLLMGoals = [
+        ...goals.long_term.map((g) => ({
+          horizon: "long" as const,
+          ...g,
+        })),
+        ...goals.medium_term.map((g) => ({
+          horizon: "medium" as const,
+          ...g,
+        })),
+        ...goals.short_term.map((g) => ({
+          horizon: "short" as const,
+          ...g,
+        })),
+      ];
 
-          this.emit("goal:created", {
-            id: newGoal.id,
-            description: newGoal.description,
-            priority: newGoal.priority,
-          });
-        }
+      // Link: LLM’s "id" -> goal manager’s "goal-xyz" ID
+      const llmIdToRealId = new Map<string, string>();
+
+      // Keep track of newly created goal IDs so we can fetch them after pass #2
+      const createdGoalIds: string[] = [];
+
+      // Pass #1: Create each goal (with empty dependencies)
+      for (const llmGoal of allLLMGoals) {
+        const { id: llmId, horizon, dependencies: _, ...rest } = llmGoal;
+
+        // Create a new goal, letting GoalManager generate the random ID
+        const newGoal = this.goalManager.addGoal({
+          horizon,
+          status: "pending",
+          created_at: Date.now(),
+          dependencies: [], // empty for now, will fill in pass #2
+          ...rest,
+        });
+
+        // Map LLM’s temp ID -> our new random ID
+        llmIdToRealId.set(llmId, newGoal.id);
+        createdGoalIds.push(newGoal.id);
+
+        this.emit("goal:created", {
+          id: newGoal.id,
+          description: newGoal.description,
+          priority: newGoal.priority,
+        });
       }
+
+      // PASS #2: Update dependencies with real IDs
+      for (const llmGoal of allLLMGoals) {
+        // Grab the real ID for this LLM goal
+        const realGoalId = llmIdToRealId.get(llmGoal.id);
+        if (!realGoalId) continue;
+
+        // Convert LLM dependencies to our manager IDs
+        const realDeps = llmGoal.dependencies
+          .map((dep) => llmIdToRealId.get(dep))
+          .filter((id): id is string => !!id);
+
+        this.goalManager.updateGoalDependencies(realGoalId, realDeps);
+      }
+
+      // Get all the goals we just created
+      const finalGoals = createdGoalIds
+        .map((id) => this.goalManager.getGoalById(id))
+        .filter((g): g is Goal => !!g);
 
       // Add a planning step
       this.recordReasoningStep(
         `Strategy planned for objective: ${objective}`,
         "planning",
         ["strategy-planning"],
-        { goals }
+        { goals: finalGoals }
       );
     } catch (error) {
       this.logger.error(
@@ -327,6 +371,11 @@ export class ChainOfThought extends EventEmitter {
       </goal_execution_check>
     `;
 
+    /*console.log(
+      "[validateGoalPrerequisites]: =================================",
+      prompt
+    );*/
+
     try {
       const schema = z
         .object({
@@ -362,6 +411,11 @@ export class ChainOfThought extends EventEmitter {
         llmClient: this.llmClient,
         logger: this.logger,
       });
+
+      console.log(
+        "[validateGoalPrerequisites]: response: =================================",
+        response
+      );
 
       return response;
     } catch (error) {
@@ -509,7 +563,9 @@ export class ChainOfThought extends EventEmitter {
    * @returns Promise that resolves when execution is complete
    */
   public async processHighestPriorityGoal(): Promise<void> {
-    const prioritizedGoals = this.getReadyGoalsByPriority();
+    const prioritizedGoals = this.getReadyGoalsByPriority().filter(
+      (goal) => goal.status !== "completed"
+    );
 
     if (!prioritizedGoals.length) {
       this.logger.debug(
@@ -519,9 +575,25 @@ export class ChainOfThought extends EventEmitter {
       return;
     }
 
+    console.log(
+      "prioritizedGoals: =================================",
+      prioritizedGoals
+    );
+
     for (const currentGoal of prioritizedGoals) {
+      console.log(
+        "currentGoal: =================================",
+        currentGoal
+      );
+
       const { possible, reason, incompleteState } =
         await this.validateGoalPrerequisites(currentGoal);
+      console.log("possible: =================================", possible);
+      console.log("reason: =================================", reason);
+      console.log(
+        "incompleteState: =================================",
+        incompleteState
+      );
 
       // ------------------------------------------------------------------
       // Decide how to handle "false" from validateGoalPrerequisites

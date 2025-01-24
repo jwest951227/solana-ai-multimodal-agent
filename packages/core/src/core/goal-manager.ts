@@ -31,6 +31,19 @@ export class GoalManager {
   }
 
   /**
+   * Updates an existing goal with new dependencies.
+   * Used to map generated thought IDs to goal IDs.
+   * @param goalId The ID of the goal to update
+   * @param dependencies The new array of dependency IDs
+   */
+  public updateGoalDependencies(goalId: string, dependencies: string[]): void {
+    const goal = this.goals.get(goalId);
+    if (goal) {
+      goal.dependencies = dependencies;
+    }
+  }
+
+  /**
    * Updates the status of a goal. When marking as "completed",
    * sets completed_at timestamp, progress to 100%, and updates related goals.
    * @param id The ID of the goal to update
