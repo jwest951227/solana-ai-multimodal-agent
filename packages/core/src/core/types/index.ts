@@ -1,6 +1,6 @@
 import type { z } from "zod";
-import type { LLMClient } from "../core/llm-client";
-import type { Logger } from "../core/logger";
+import type { LLMClient } from "../../core/llm-client";
+import type { Logger } from "../../core/logger";
 
 /**
  * ChainOfThoughtContext can hold any relevant data

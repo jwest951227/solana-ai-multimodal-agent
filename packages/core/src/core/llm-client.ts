@@ -10,7 +10,7 @@ import type {
   LLMClientConfig,
   LLMResponse,
   StructuredAnalysis,
-} from "../types";
+} from "./types";
 import { generateText } from "ai";
 
 import { openai } from "@ai-sdk/openai";

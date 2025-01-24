@@ -8,12 +8,12 @@
  */
 
 import { Orchestrator } from "../packages/core/src/core/orchestrator";
-import { HandlerRole } from "../packages/core/src/types";
+import { HandlerRole } from "../packages/core/src/core/types";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { Processor } from "../packages/core/src/core/processor";
 import { LLMClient } from "../packages/core/src/core/llm-client";
-import { LogLevel } from "../packages/core/src/types";
+import { LogLevel } from "../packages/core/src/core/types";
 import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
 import { Consciousness } from "../packages/core/src/core/consciousness";

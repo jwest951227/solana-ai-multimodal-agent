@@ -1,20 +1,20 @@
 import { LLMClient } from "./llm-client";
 import { Logger } from "./logger";
 import { Room } from "./room";
-import type { VectorDB } from "../types";
+import type { VectorDB } from "./types";
 
 import type {
   Character,
   ProcessedResult,
   SearchResult,
   SuggestedOutput,
-} from "../types";
-import { LogLevel } from "../types";
+} from "./types";
+import { LogLevel } from "./types";
 
 import { hashString, validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { HandlerRole, type IOHandler } from "../types";
+import { HandlerRole, type IOHandler } from "./types";
 
 export class Processor {
   private logger: Logger;

@@ -1,4 +1,4 @@
-import type { Character } from "../types";
+import type { Character } from "./types";
 
 // Example character configuration
 export const defaultCharacter: Character = {

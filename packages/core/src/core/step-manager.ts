@@ -1,4 +1,4 @@
-import type { Step, StepType } from "../types";
+import type { Step, StepType } from "./types";
 
 /**
  * Manages a collection of steps with unique IDs.

@@ -7,7 +7,7 @@ import {
   type Thought,
   type ThoughtTemplate,
   type ThoughtType,
-} from "../types";
+} from "./types";
 import { validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 

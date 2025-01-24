@@ -2,10 +2,9 @@ import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
 import type { Processor } from "./processor";
-import type { VectorDB } from "../types"; // If you rely on VectorDB from here
-import { LogLevel, type LoggerConfig } from "../types";
-import type { z } from "zod";
-import type { IOHandler } from "../types";
+import type { VectorDB } from "./types";
+import { LogLevel, type LoggerConfig } from "./types";
+import type { IOHandler } from "./types";
 
 /**
  * Orchestrator system that manages both "input" and "output" handlers

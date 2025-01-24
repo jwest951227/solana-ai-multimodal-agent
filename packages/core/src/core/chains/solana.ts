@@ -5,7 +5,7 @@ import {
   Transaction,
   sendAndConfirmTransaction,
 } from "@solana/web3.js";
-import type { IChain } from "../../types";
+import type { IChain } from "../types";
 import bs58 from "bs58";
 
 export interface SolanaChainConfig {

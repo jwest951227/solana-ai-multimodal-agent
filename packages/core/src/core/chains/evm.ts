@@ -1,5 +1,5 @@
 import { ethers } from "ethers";
-import type { IChain } from "../../types";
+import type { IChain } from "../types";
 
 /**
  * Configuration options for initializing an EVM chain connection

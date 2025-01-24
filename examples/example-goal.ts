@@ -14,7 +14,7 @@ import * as readline from "readline";
 import chalk from "chalk";
 
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
-import { GoalStatus, LogLevel } from "../packages/core/src/types";
+import { GoalStatus, LogLevel } from "../packages/core/src/core/types";
 import { fetchGraphQL } from "../packages/core/src/core/providers";
 import { StarknetChain } from "../packages/core/src/core/chains/starknet";
 import { z } from "zod";
