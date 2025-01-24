@@ -1,27 +1,30 @@
 {
-  "name": "daydreams",
-  "version": "0.0.1",
-  "scripts": {
-    "goal": "bun run examples/example-goal.ts",
-    "task": "bun run examples/example-basic.ts",
-    "twitter": "bun run examples/example-twitter.ts",
-    "api": "bun run examples/example-api.ts",
-    "test": "bun run packages/core",
-    "build": "pnpm --dir packages/core run build",
-    "release": "pnpm build && pnpm prettier && npx lerna publish --no-private --force-publish",
-    "knip": "knip"
-  },
-  "dependencies": {
-    "@mendable/firecrawl-js": "^1.15.7",
-    "ajv": "^8.17.1",
-    "chalk": "^5.4.1",
-    "lerna": "^8.1.9",
-    "readline": "^1.3.0",
-    "zod": "^3.24.1"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.5",
-    "knip": "^5.43.1",
-    "typescript": "~5.6.2"
-  }
+    "name": "daydreams",
+    "version": "0.0.1",
+    "scripts": {
+        "goal": "bun run examples/example-goal.ts",
+        "task": "bun run examples/example-basic.ts",
+        "twitter": "bun run examples/example-twitter.ts",
+        "api": "bun run examples/example-api.ts",
+        "test": "bun run packages/core",
+        "build": "pnpm --dir packages/core run build",
+        "release": "pnpm build && pnpm prettier && npx lerna publish --no-private --force-publish",
+        "prettier-check": "pnpx prettier --check packages",
+        "prettier": "pnpx prettier --write packages",
+        "knip": "knip"
+    },
+    "dependencies": {
+        "@mendable/firecrawl-js": "^1.15.7",
+        "ajv": "^8.17.1",
+        "chalk": "^5.4.1",
+        "lerna": "^8.1.9",
+        "prettier": "^3.4.2",
+        "readline": "^1.3.0",
+        "zod": "^3.24.1"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.5",
+        "knip": "^5.43.1",
+        "typescript": "~5.6.2"
+    }
 }
