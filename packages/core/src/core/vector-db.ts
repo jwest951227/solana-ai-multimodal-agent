@@ -1505,4 +1505,77 @@ export class ChromaVectorDB implements VectorDB {
       throw error;
     }
   }
+
+  // Check if we've already processed this content
+  private async hasProcessedContent(
+    contentId: string,
+    room: Room
+  ): Promise<boolean> {
+    try {
+      const collection = await this.getCollectionForRoom(room.id);
+
+      // Search for exact match of the content ID in metadata
+      const results = await collection.get({
+        where: {
+          $and: [
+            { type: { $eq: "processed_marker" } },
+            { contentId: { $eq: contentId } },
+          ],
+        },
+      });
+
+      return results.ids.length > 0;
+    } catch (error) {
+      this.logger.error("ChromaVectorDB.hasProcessedContent", "Check failed", {
+        error: error instanceof Error ? error.message : String(error),
+        contentId,
+        roomId: room.id,
+      });
+      return false;
+    }
+  }
+
+  // Mark content as processed
+  private async markContentAsProcessed(
+    contentId: string,
+    room: Room
+  ): Promise<void> {
+    try {
+      const collection = await this.getCollectionForRoom(room.id);
+      const markerId = `processed_${contentId}`;
+
+      await collection.add({
+        ids: [markerId],
+        documents: [`Processed marker for content: ${contentId}`],
+        metadatas: [
+          {
+            type: "processed_marker",
+            contentId: contentId,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+
+      this.logger.debug(
+        "ChromaVectorDB.markContentAsProcessed",
+        "Marked content as processed",
+        {
+          contentId,
+          roomId: room.id,
+          markerId,
+        }
+      );
+    } catch (error) {
+      this.logger.error(
+        "ChromaVectorDB.markContentAsProcessed",
+        "Failed to mark content",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          contentId,
+          roomId: room.id,
+        }
+      );
+      throw error;
+    }
+  }
 }

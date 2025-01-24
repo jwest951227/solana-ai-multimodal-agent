@@ -47,6 +47,8 @@ export class Processor {
 
     const hasProcessed = await this.hasProcessedContent(contentId, room);
 
+    console.log("hasProcessed", hasProcessed);
+
     if (hasProcessed) {
       return {
         content,
@@ -166,13 +168,9 @@ ${Array.from(this.ioHandlers.entries())
           contentType: result.classification.contentType,
         },
         enrichedContext: {
+          ...result.enrichment,
           timeContext: this.getTimeContext(new Date()),
-          summary: result.enrichment.summary,
-          topics: result.enrichment.topics,
           relatedMemories: relatedMemories.map((m: SearchResult) => m.content),
-          sentiment: result.enrichment.sentiment,
-          entities: result.enrichment.entities,
-          intent: result.enrichment.intent,
           availableOutputs: Array.from(this.ioHandlers.keys()),
         },
         suggestedOutputs: result.suggestedOutputs as SuggestedOutput<any>[],
@@ -251,7 +249,7 @@ ${Array.from(this.ioHandlers.entries())
           return hashString(JSON.stringify(relevantData));
         });
 
-        // Join them, but also add a short suffix so different array orders don’t collide
+        // Join them, but also add a short suffix so different array orders don't collide
         const suffix = `${Date.now()}_${Math.random()
           .toString(36)
           .slice(2, 6)}`;
@@ -290,7 +288,7 @@ ${Array.from(this.ioHandlers.entries())
       }
 
       // 9. Finally, fallback to hashing the object,
-      //    but add a random/time suffix so repeated content isn’t auto-deduplicated.
+      //    but add a random/time suffix so repeated content isn't auto-deduplicated.
       const relevantData = {
         content: content.content || content,
         type: content.type,
@@ -318,22 +316,26 @@ ${Array.from(this.ioHandlers.entries())
     contentId: string,
     room: Room
   ): Promise<boolean> {
-    // Create a marker string that includes the content ID
-    const markerContent = `processed_content:${contentId}`;
+    try {
+      // Use findSimilarInRoom but with exact metadata matching
+      const results = await this.vectorDb.findSimilarInRoom(
+        contentId, // Simple query text since we're using metadata matching
+        room.id,
+        1,
+        {
+          contentId: contentId,
+        }
+      );
 
-    this.logger.debug("Processor.hasProcessedContent", "Checking content", {
-      contentId,
-      markerContent,
-      roomId: room.id,
-    });
-
-    const similar = await this.vectorDb.findSimilarInRoom(
-      markerContent,
-      room.id,
-      1
-    );
-
-    return similar.length > 0;
+      return results.length > 0;
+    } catch (error) {
+      this.logger.error("Processor.hasProcessedContent", "Check failed", {
+        error: error instanceof Error ? error.message : String(error),
+        contentId,
+        roomId: room.id,
+      });
+      return false;
+    }
   }
 
   // Mark content as processed
@@ -341,16 +343,39 @@ ${Array.from(this.ioHandlers.entries())
     contentId: string,
     room: Room
   ): Promise<void> {
-    // Create a marker string that includes the content ID
-    const markerContent = `processed_content:${contentId}`;
+    try {
+      const markerId = `processed_${contentId}`;
 
-    await this.vectorDb.storeInRoom(
-      markerContent, // Changed from just contentId to markerContent
-      room.id,
-      {
-        type: "processed_marker",
-        timestamp: new Date().toISOString(),
-      }
-    );
+      await this.vectorDb.storeInRoom(
+        `Processed marker for content: ${contentId}`,
+        room.id,
+        {
+          type: "processed_marker",
+          contentId: contentId,
+          timestamp: new Date().toISOString(),
+        }
+      );
+
+      this.logger.debug(
+        "Processor.markContentAsProcessed",
+        "Marked content as processed",
+        {
+          contentId,
+          roomId: room.id,
+          markerId,
+        }
+      );
+    } catch (error) {
+      this.logger.error(
+        "Processor.markContentAsProcessed",
+        "Failed to mark content",
+        {
+          error: error instanceof Error ? error.message : String(error),
+          contentId,
+          roomId: room.id,
+        }
+      );
+      throw error;
+    }
   }
 }

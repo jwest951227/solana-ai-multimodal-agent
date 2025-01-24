@@ -23,7 +23,7 @@ import { z } from "zod";
 import readline from "readline";
 
 async function main() {
-  const loglevel = LogLevel.INFO;
+  const loglevel = LogLevel.DEBUG;
   // Initialize core dependencies
   const vectorDb = new ChromaVectorDB("twitter_agent", {
     chromaUrl: "http://localhost:8000",
@@ -116,7 +116,7 @@ async function main() {
       content: z.string(),
       metadata: z.record(z.any()),
     }),
-    interval: 300000, // Generate thoughts every 5 minutes
+    interval: 30000, // Generate thoughts every 30 seconds
   });
 
   // Register output handler for posting thoughts to Twitter
