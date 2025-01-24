@@ -554,14 +554,8 @@ export interface IOHandler {
     /** "input" | "output" | (optionally "action") if you want more roles */
     role: HandlerRole;
 
-    /** For input handlers with recurring scheduling */
-    interval?: number;
-
     /** The schema for the input handler */
     schema: z.ZodType<any>;
-
-    /** Next run time (timestamp in ms); for input scheduling. */
-    nextRun?: number;
 
     /** The main function. For inputs, no payload is typically passed. For outputs, pass the data. */
     handler: (payload?: unknown) => Promise<unknown>;

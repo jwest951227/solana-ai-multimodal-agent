@@ -5,6 +5,8 @@ import type { Processor } from "./processor";
 import type { VectorDB } from "./types";
 import { LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
+import type { ScheduledTaskMongoDb } from "./scheduled-db";
+import type { ObjectId } from "mongodb";
 
 /**
  * Orchestrator system that manages both "input" and "output" handlers
@@ -17,6 +19,8 @@ export class Orchestrator {
      */
     private readonly ioHandlers = new Map<string, IOHandler>();
 
+    private pollIntervalId?: ReturnType<typeof setInterval>;
+
     /**
      * A TaskScheduler that only schedules and runs input handlers
      */
@@ -27,6 +31,8 @@ export class Orchestrator {
     private readonly logger: Logger;
     private readonly processor: Processor;
 
+    private readonly scheduledTaskDb: ScheduledTaskMongoDb;
+
     /**
      * Other references in your system. Adjust as needed.
      */
@@ -35,11 +41,12 @@ export class Orchestrator {
         private readonly roomManager: RoomManager,
         vectorDb: VectorDB,
         processor: Processor,
+        scheduledTaskDb: ScheduledTaskMongoDb,
         config?: LoggerConfig
     ) {
         this.vectorDb = vectorDb;
         this.processor = processor;
-
+        this.scheduledTaskDb = scheduledTaskDb;
         this.logger = new Logger(
             config ?? {
                 level: LogLevel.ERROR,
@@ -52,6 +59,8 @@ export class Orchestrator {
         this.inputScheduler = new TaskScheduler(async (handler) => {
             await this.processInputTask(handler);
         });
+
+        this.startPolling();
     }
 
     /**
@@ -71,37 +80,15 @@ export class Orchestrator {
         }
         this.ioHandlers.set(handler.name, handler);
 
-        // If it's an "input" and has an interval, schedule it
-        if (handler.role === "input" && handler.interval) {
-            // Ensure nextRun is definitely set
-            const scheduledHandler = {
-                ...handler,
-                nextRun: handler.nextRun ?? Date.now(),
-            };
-            this.inputScheduler.scheduleTask(scheduledHandler);
+        this.processor.registerIOHandler(handler);
 
-            this.logger.info(
-                "Orchestrator.registerIOHandler",
-                "Registered recurring input",
-                {
-                    name: handler.name,
-                    interval: handler.interval,
-                    nextRun: scheduledHandler.nextRun,
-                }
-            );
-        } else {
-            // Register the handler with the processor
-            this.processor.registerIOHandler(handler);
-
-            // For outputs (or non-recurring inputs), just log
-            this.logger.info(
-                "Orchestrator.registerIOHandler",
-                `Registered ${handler.role}`,
-                {
-                    name: handler.name,
-                }
-            );
-        }
+        this.logger.info(
+            "Orchestrator.registerIOHandler",
+            `Registered ${handler.role}`,
+            {
+                name: handler.name,
+            }
+        );
     }
 
     /**
@@ -163,15 +150,15 @@ export class Orchestrator {
             if (!result) return;
 
             // Re-schedule if it’s a recurring input
-            if (handler.interval && handler.interval > 0) {
-                const scheduledHandler = {
-                    ...handler,
-                    nextRun: Date.now() + handler.interval,
-                };
-                this.inputScheduler.scheduleTask(scheduledHandler);
-            } else {
-                this.removeIOHandler(handler.name);
-            }
+            // if (handler.interval && handler.interval > 0) {
+            //     const scheduledHandler = {
+            //         ...handler,
+            //         nextRun: Date.now() + handler.interval,
+            //     };
+            //     this.inputScheduler.scheduleTask(scheduledHandler);
+            // } else {
+            //     this.removeIOHandler(handler.name);
+            // }
 
             if (Array.isArray(result)) {
                 for (const item of result) {
@@ -195,7 +182,6 @@ export class Orchestrator {
                               }
                             : error,
                     handlerType: handler.role,
-                    interval: handler.interval,
                 }
             );
         }
@@ -383,6 +369,117 @@ export class Orchestrator {
                 `dispatchToInput Error: ${
                     error instanceof Error ? error.message : String(error)
                 }`
+            );
+        }
+    }
+
+    public async scheduleTaskInDb(
+        handlerName: string,
+        data: Record<string, unknown> = {},
+        intervalMs?: number
+    ): Promise<ObjectId> {
+        const now = Date.now();
+        const nextRunAt = new Date(now + (intervalMs ?? 0));
+
+        this.logger.info(
+            "Orchestrator.scheduleTaskInDb",
+            `Scheduling task ${handlerName}`,
+            {
+                nextRunAt,
+                intervalMs,
+            }
+        );
+
+        return await this.scheduledTaskDb.createTask(
+            handlerName,
+            {
+                request: handlerName,
+                task_data: JSON.stringify(data),
+            },
+            nextRunAt,
+            intervalMs
+        );
+    }
+
+    public startPolling(everyMs = 10_000): void {
+        // Stop existing polling if it exists
+        if (this.pollIntervalId) {
+            clearInterval(this.pollIntervalId);
+        }
+
+        this.pollIntervalId = setInterval(() => {
+            this.pollScheduledTasks().catch((err) => {
+                this.logger.error(
+                    "Orchestrator.startPolling",
+                    "Error in pollScheduledTasks",
+                    err
+                );
+            });
+        }, everyMs);
+
+        this.logger.info(
+            "Orchestrator.startPolling",
+            "Started polling for scheduled tasks",
+            {
+                intervalMs: everyMs,
+            }
+        );
+    }
+
+    private async pollScheduledTasks() {
+        try {
+            // Guard against undefined collection
+            if (!this.scheduledTaskDb) {
+                this.logger.error(
+                    "pollScheduledTasks error",
+                    "scheduledTaskDb is not initialized"
+                );
+                return;
+            }
+
+            const tasks = await this.scheduledTaskDb.findDueTasks();
+            if (!tasks) {
+                return;
+            }
+
+            for (const task of tasks) {
+                if (!task._id) {
+                    this.logger.error(
+                        "pollScheduledTasks error",
+                        "Task is missing _id"
+                    );
+                    continue;
+                }
+
+                // 2. Mark them as 'running' (or handle concurrency the way you want)
+                await this.scheduledTaskDb.markRunning(task._id);
+
+                // 3. Dispatch to the orchestrator
+                try {
+                    await this.dispatchToInput(task.handlerName, task.taskData);
+                } catch (error) {
+                    this.logger.error(
+                        "Task execution failed",
+                        `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                    );
+                }
+
+                // 4. If the task is recurring (interval_ms), update next_run_at
+                if (task.intervalMs) {
+                    const nextRunAt = new Date(Date.now() + task.intervalMs);
+                    await this.scheduledTaskDb.updateNextRun(
+                        task._id,
+                        nextRunAt
+                    );
+                } else {
+                    // Otherwise, mark completed
+                    await this.scheduledTaskDb.markCompleted(task._id);
+                }
+            }
+        } catch (err) {
+            this.logger.error(
+                "pollScheduledTasks error",
+                err instanceof Error ? err.message : String(err)
             );
         }
     }
