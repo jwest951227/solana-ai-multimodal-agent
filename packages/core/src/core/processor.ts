@@ -14,7 +14,7 @@ import { LogLevel } from "../types";
 import { hashString, validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import { HandlerRole, type IOHandler } from "./orchestrator";
+import { HandlerRole, type IOHandler } from "../types";
 
 export class Processor {
   private logger: Logger;

@@ -5,35 +5,7 @@ import type { Processor } from "./processor";
 import type { VectorDB } from "../types"; // If you rely on VectorDB from here
 import { LogLevel, type LoggerConfig } from "../types";
 import type { z } from "zod";
-
-export enum HandlerRole {
-  INPUT = "input",
-  OUTPUT = "output",
-  ACTION = "action",
-}
-
-/**
- * A single interface for all Inputs, Outputs.
- */
-export interface IOHandler {
-  /** Unique name for this handler */
-  name: string;
-
-  /** "input" | "output" | (optionally "action") if you want more roles */
-  role: HandlerRole;
-
-  /** For input handlers with recurring scheduling */
-  interval?: number;
-
-  /** The schema for the input handler */
-  schema: z.ZodType<any>;
-
-  /** Next run time (timestamp in ms); for input scheduling. */
-  nextRun?: number;
-
-  /** The main function. For inputs, no payload is typically passed. For outputs, pass the data. */
-  handler: (payload?: unknown) => Promise<unknown>;
-}
+import type { IOHandler } from "../types";
 
 /**
  * Orchestrator system that manages both "input" and "output" handlers
@@ -361,6 +333,38 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * Dispatches data to a registered input handler and processes the result through the autonomous flow.
+   *
+   * @param name - The name of the input handler to dispatch to
+   * @param data - The data to pass to the input handler
+   * @returns An array of output suggestions generated from processing the input
+   *
+   * @example
+   * ```ts
+   * // Register a chat input handler
+   * orchestrator.registerIOHandler({
+   *   name: "user_chat",
+   *   role: "input",
+   *   handler: async (message) => {
+   *     return {
+   *       type: "chat",
+   *       content: message.content,
+   *       metadata: { userId: message.userId }
+   *     };
+   *   }
+   * });
+   *
+   * // Dispatch a message to the chat handler
+   * const outputs = await orchestrator.dispatchToInput("user_chat", {
+   *   content: "Hello AI!",
+   *   userId: "user123"
+   * });
+   * ```
+   *
+   * @throws {Error} If no handler is found with the given name
+   * @throws {Error} If the handler's role is not "input"
+   */
   public async dispatchToInput<T>(name: string, data: T): Promise<unknown> {
     const handler = this.ioHandlers.get(name);
     if (!handler) throw new Error(`No IOHandler: ${name}`);

@@ -7,10 +7,8 @@
  * - Process inputs through a character-based personality
  */
 
-import {
-  HandlerRole,
-  Orchestrator,
-} from "../packages/core/src/core/orchestrator";
+import { Orchestrator } from "../packages/core/src/core/orchestrator";
+import { HandlerRole } from "../packages/core/src/types";
 import { TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";

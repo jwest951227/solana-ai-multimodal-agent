@@ -7,16 +7,12 @@
  * - Process inputs through a character-based personality
  */
 
-import {
-  HandlerRole,
-  Orchestrator,
-} from "../packages/core/src/core/orchestrator";
-import { TwitterClient } from "../packages/core/src/io/twitter";
+import { Orchestrator } from "../packages/core/src/core/orchestrator";
+import { HandlerRole } from "../packages/core/src/types";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
 import { Processor } from "../packages/core/src/core/processor";
 import { LLMClient } from "../packages/core/src/core/llm-client";
-import { env } from "../packages/core/src/core/env";
 import { LogLevel } from "../packages/core/src/types";
 import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
