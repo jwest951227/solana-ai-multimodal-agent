@@ -86,9 +86,6 @@ ${contentStr}
 # Related Context:
 ${relatedMemories.map((m: SearchResult) => `- ${m.content}`).join("\n")}
 
-# Use the Character's voice and tone to analyze the content.
-${JSON.stringify(this.character)}
-
 # Available Outputs:
 ${Array.from(this.ioHandlers.entries())
   .filter(([_, handler]) => handler.role === HandlerRole.OUTPUT)
@@ -98,7 +95,7 @@ ${Array.from(this.ioHandlers.entries())
   )
   .join("\n")}
 
-#Available Actions:
+# Available Actions:
 ${Array.from(this.ioHandlers.entries())
   .filter(([_, handler]) => handler.role === HandlerRole.ACTION)
   .map(
@@ -118,6 +115,19 @@ ${Array.from(this.ioHandlers.entries())
   3. If possible you should include summary of the content in the output for the user to avoid more processing.
   </thinking>
 
+  <thinking id="message_personality">
+  # Speak in the following voice:
+  ${JSON.stringify(this.character.voice)}
+
+  # Use the following traits to define your behavior:
+  ${JSON.stringify(this.character.traits)}
+
+  # Use the following examples to guide your behavior:
+  ${JSON.stringify(this.character.instructions)}
+
+  # Use the following template to craft your message:
+  ${JSON.stringify(this.character.templates?.tweetTemplate)}
+  </thinking>
 `;
 
     try {
