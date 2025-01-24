@@ -1,6 +1,6 @@
-import { LogLevel } from "../types";
+import { LogLevel } from "./types";
 
-import type { LogEntry, LoggerConfig } from "../types";
+import type { LogEntry, LoggerConfig } from "./types";
 
 export class Logger {
   private config: Required<LoggerConfig>;

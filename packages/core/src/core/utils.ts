@@ -1,6 +1,6 @@
 import { Ajv, type JSONSchemaType } from "ajv";
 import zodToJsonSchema from "zod-to-json-schema";
-import type { LLMValidationOptions } from "../types";
+import type { LLMValidationOptions } from "./types";
 
 export const injectTags = (
   tags: Record<string, string> = {},

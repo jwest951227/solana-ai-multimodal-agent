@@ -1,8 +1,8 @@
 import { Scraper, SearchMode, type Tweet } from "agent-twitter-client";
 import type { JSONSchemaType } from "ajv";
-import { Logger } from "../core/logger";
+import { Logger } from "../../core/logger";
 import { LogLevel } from "../types";
-import { env } from "../core/env";
+import { env } from "../../core/env";
 
 export interface TwitterCredentials {
   username: string;

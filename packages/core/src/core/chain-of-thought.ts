@@ -5,12 +5,14 @@ import type {
   Goal,
   HorizonType,
   RefinedGoal,
-} from "../types";
+  VectorDB,
+  Output,
+} from "./types";
 import { Logger } from "./logger";
 import { EventEmitter } from "events";
 import { GoalManager } from "./goal-manager";
 import { StepManager, type Step, type StepType } from "./step-manager";
-import { LogLevel } from "../types";
+
 import {
   calculateImportance,
   determineEmotions,
@@ -19,10 +21,9 @@ import {
   injectTags,
 } from "./utils";
 import Ajv from "ajv";
-import type { VectorDB } from "../types";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
-import type { Output } from "../types";
+import { LogLevel } from "./types";
 
 const ajv = new Ajv();
 

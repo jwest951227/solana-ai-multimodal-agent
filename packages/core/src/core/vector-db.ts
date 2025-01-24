@@ -16,7 +16,7 @@ import {
   type HierarchicalCluster,
   type SearchResult,
   type VectorDB,
-} from "../types";
+} from "./types";
 import { isValidDateValue } from "./utils";
 
 export class ChromaVectorDB implements VectorDB {

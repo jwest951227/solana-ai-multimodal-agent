@@ -1,4 +1,4 @@
-import type { Goal, GoalStatus, HorizonType } from "../types";
+import type { Goal, GoalStatus, HorizonType } from "./types";
 /**
  * Manages a collection of goals, their relationships, and their lifecycle states.
  * Provides methods for creating, updating, and querying goals and their hierarchies.

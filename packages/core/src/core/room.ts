@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import type { RoomMetadata } from "../types";
-import type { Memory } from "../types";
+import type { RoomMetadata } from "./types";
+import type { Memory } from "./types";
 
 /**
  * Represents a room/conversation context that can store memories and metadata.
