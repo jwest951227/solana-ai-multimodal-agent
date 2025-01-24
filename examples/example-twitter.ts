@@ -7,7 +7,10 @@
  * - Process inputs through a character-based personality
  */
 
-import { Orchestrator } from "../packages/core/src/core/orchestrator";
+import {
+  HandlerRole,
+  Orchestrator,
+} from "../packages/core/src/core/orchestrator";
 import { TwitterClient } from "../packages/core/src/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
@@ -19,6 +22,7 @@ import chalk from "chalk";
 import { defaultCharacter } from "../packages/core/src/core/character";
 import { Consciousness } from "../packages/core/src/core/consciousness";
 import { z } from "zod";
+import readline from "readline";
 
 async function main() {
   const loglevel = LogLevel.INFO;
@@ -69,10 +73,10 @@ async function main() {
     logLevel: loglevel,
   });
 
-  // Register input handler for Twitter mentions
+  //   Register input handler for Twitter mentions
   core.registerIOHandler({
     name: "twitter_mentions",
-    role: "input",
+    role: HandlerRole.INPUT,
     handler: async () => {
       console.log(chalk.blue("🔍 Checking Twitter mentions..."));
       // Create a static mentions input handler
@@ -97,7 +101,7 @@ async function main() {
   // Register input handler for autonomous thoughts
   core.registerIOHandler({
     name: "consciousness_thoughts",
-    role: "input",
+    role: HandlerRole.INPUT,
     handler: async () => {
       console.log(chalk.blue("🧠 Generating thoughts..."));
       const thought = await consciousness.start();
@@ -120,7 +124,7 @@ async function main() {
   // Register output handler for posting thoughts to Twitter
   core.registerIOHandler({
     name: "twitter_thought",
-    role: "output",
+    role: HandlerRole.OUTPUT,
     handler: async (data: unknown) => {
       const thoughtData = data as { content: string };
 
@@ -142,7 +146,7 @@ async function main() {
   // Register output handler for Twitter replies
   core.registerIOHandler({
     name: "twitter_reply",
-    role: "output",
+    role: HandlerRole.OUTPUT,
     handler: async (data: unknown) => {
       const tweetData = data as { content: string; inReplyTo: string };
 
@@ -161,9 +165,16 @@ async function main() {
       ),
   });
 
-  // Start monitoring
+  // Set up readline interface
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  // Start the prompt loop
   console.log(chalk.cyan("🤖 Bot is now running and monitoring Twitter..."));
-  console.log(chalk.cyan("Press Ctrl+C to stop"));
+  console.log(chalk.cyan("You can type messages in the console."));
+  console.log(chalk.cyan('Type "exit" to quit'));
 
   // Handle graceful shutdown
   process.on("SIGINT", async () => {
@@ -175,6 +186,7 @@ async function main() {
     core.removeIOHandler("consciousness_thoughts");
     core.removeIOHandler("twitter_reply");
     core.removeIOHandler("twitter_thought");
+    rl.close();
 
     console.log(chalk.green("✅ Shutdown complete"));
     process.exit(0);

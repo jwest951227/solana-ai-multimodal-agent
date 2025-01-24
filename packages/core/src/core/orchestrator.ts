@@ -6,6 +6,12 @@ import type { VectorDB } from "../types"; // If you rely on VectorDB from here
 import { LogLevel, type LoggerConfig } from "../types";
 import type { z } from "zod";
 
+export enum HandlerRole {
+  INPUT = "input",
+  OUTPUT = "output",
+  ACTION = "action",
+}
+
 /**
  * A single interface for all Inputs, Outputs.
  */
@@ -14,7 +20,7 @@ export interface IOHandler {
   name: string;
 
   /** "input" | "output" | (optionally "action") if you want more roles */
-  role: "input" | "output";
+  role: HandlerRole;
 
   /** For input handlers with recurring scheduling */
   interval?: number;
@@ -160,7 +166,6 @@ export class Orchestrator {
       data,
     });
 
-    // Optionally validate data with a schema if you had one
     try {
       const result = await handler.handler(data);
       return result;
@@ -184,11 +189,10 @@ export class Orchestrator {
   private async processInputTask(handler: IOHandler): Promise<void> {
     try {
       const result = await handler.handler();
-
       if (!result) return;
 
+      // Re-schedule if it’s a recurring input
       if (handler.interval && handler.interval > 0) {
-        // Create a new handler object with definite nextRun
         const scheduledHandler = {
           ...handler,
           nextRun: Date.now() + handler.interval,
@@ -198,28 +202,12 @@ export class Orchestrator {
         this.removeIOHandler(handler.name);
       }
 
-      const room = await this.roomManager.ensureRoom(handler.name, "core");
-      const items = Array.isArray(result) ? result : [result];
-
-      for (const item of items) {
-        const processed = await this.processor.process(item, room);
-
-        if (!processed.alreadyProcessed) {
-          for (const output of processed.suggestedOutputs) {
-            await this.dispatchToOutput(output.name, output.data);
-          }
-
-          await this.roomManager.addMemory(
-            room.id,
-            JSON.stringify(processed.content),
-            {
-              source: handler.name,
-              type: "input",
-              ...processed.metadata,
-              ...processed.enrichedContext,
-            }
-          );
+      if (Array.isArray(result)) {
+        for (const item of result) {
+          await this.runAutonomousFlow(item, handler.name);
         }
+      } else {
+        await this.runAutonomousFlow(result, handler.name);
       }
     } catch (error) {
       this.logger.error(
@@ -238,6 +226,160 @@ export class Orchestrator {
           handlerType: handler.role,
           interval: handler.interval,
         }
+      );
+    }
+  }
+  /**
+   * Dispatches data to a registered action handler and returns its result.
+   *
+   * @param name - The name of the registered action handler to dispatch to
+   * @param data - The data to pass to the action handler
+   * @returns Promise resolving to the action handler's result
+   * @throws Error if no handler is found with the given name or if it's not an action handler
+   *
+   * @example
+   * ```ts
+   * // Register an action handler
+   * orchestrator.registerIOHandler({
+   *   name: "sendEmail",
+   *   role: "action",
+   *   handler: async (data: {to: string, body: string}) => {
+   *     // Send email logic
+   *     return {success: true};
+   *   }
+   * });
+   *
+   * // Dispatch to the action
+   * const result = await orchestrator.dispatchToAction("sendEmail", {
+   *   to: "user@example.com",
+   *   body: "Hello world"
+   * });
+   * ```
+   */
+  public async dispatchToAction<T>(name: string, data: T): Promise<unknown> {
+    const handler = this.ioHandlers.get(name);
+    if (!handler) {
+      throw new Error(`No IOHandler registered with name: ${name}`);
+    }
+    if (handler.role !== "action") {
+      throw new Error(`Handler "${name}" is not an action handler`);
+    }
+    this.logger.debug("Orchestrator.dispatchToAction", "Executing action", {
+      name,
+      data,
+    });
+    try {
+      const result = await handler.handler(data);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        "Orchestrator.dispatchToAction",
+        "Handler threw an error",
+        {
+          name,
+          error,
+        }
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Takes some incoming piece of data, processes it through the system,
+   * and handles any follow-on "action" or "output" suggestions in a chain.
+   */
+  private async runAutonomousFlow(initialData: unknown, sourceName: string) {
+    // We keep a queue of "items" to process
+    const queue: Array<{ data: unknown; source: string }> = [
+      { data: initialData, source: sourceName },
+    ];
+
+    const outputs: Array<{ name: string; data: any }> = [];
+
+    while (queue.length > 0) {
+      const { data, source } = queue.shift()!;
+
+      // 1) Ensure there's a room
+      const room = await this.roomManager.ensureRoom(source, "core");
+
+      // 2) Process with your existing processor logic
+      const processed = await this.processor.process(data, room);
+
+      // If the processor thinks we've already processed it, we skip
+      if (processed.alreadyProcessed) {
+        continue;
+      }
+
+      // 3) Save to memory (like you do in processInputTask)
+      await this.roomManager.addMemory(
+        room.id,
+        JSON.stringify(processed.content),
+        {
+          source,
+          type: "input",
+          ...processed.metadata,
+          ...processed.enrichedContext,
+        }
+      );
+
+      // 4) For each suggested output, see if it’s an action or an output
+      for (const output of processed.suggestedOutputs) {
+        const handler = this.ioHandlers.get(output.name);
+        if (!handler) {
+          this.logger.warn(
+            "No handler found for suggested output",
+            output.name
+          );
+          continue;
+        }
+
+        if (handler.role === "output") {
+          outputs.push({ name: output.name, data: output.data });
+
+          // Dispatch to an output handler (e.g. send a Slack message)
+          await this.dispatchToOutput(output.name, output.data);
+        } else if (handler.role === "action") {
+          // Execute an action (e.g. fetch data from an API), wait for the result
+          const actionResult = await this.dispatchToAction(
+            output.name,
+            output.data
+          );
+          // Then feed the result back into the queue, so it will be processed
+          if (actionResult) {
+            queue.push({
+              data: actionResult,
+              source: output.name, // or keep the same source, your choice
+            });
+          }
+        } else {
+          this.logger.warn(
+            "Suggested output has an unrecognized role",
+            handler.role
+          );
+        }
+      }
+    }
+  }
+
+  public async dispatchToInput<T>(name: string, data: T): Promise<unknown> {
+    const handler = this.ioHandlers.get(name);
+    if (!handler) throw new Error(`No IOHandler: ${name}`);
+    if (handler.role !== "input") {
+      throw new Error(`Handler "${name}" is not role=input`);
+    }
+    try {
+      const result = await handler.handler(data);
+      if (result) {
+        // Use our runAutonomousFlow chain approach
+        return await this.runAutonomousFlow(result, handler.name);
+      }
+      return [];
+    } catch (error) {
+      this.logger.error(
+        "dispatchToInput Error",
+        `dispatchToInput Error: ${
+          error instanceof Error ? error.message : String(error)
+        }`
       );
     }
   }
