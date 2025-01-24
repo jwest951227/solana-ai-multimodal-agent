@@ -10,7 +10,7 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        body: ["The Seasons", "monospace"],
+        body: ["Space Mono", "monospace"],
       },
       colors: {
         background: "hsl(var(--background))",
