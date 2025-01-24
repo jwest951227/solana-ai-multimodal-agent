@@ -18,6 +18,7 @@ import {
   type VectorDB,
 } from "./types";
 import { isValidDateValue } from "./utils";
+import { CharacterTextSplitter } from "@langchain/textsplitters";
 
 export class ChromaVectorDB implements VectorDB {
   // Static collection names

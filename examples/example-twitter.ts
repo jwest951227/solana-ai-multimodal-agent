@@ -21,6 +21,7 @@ import { defaultCharacter } from "../packages/core/src/core/character";
 import { Consciousness } from "../packages/core/src/core/consciousness";
 import { z } from "zod";
 import readline from "readline";
+import FirecrawlApp from "@mendable/firecrawl-js";
 
 async function main() {
   const loglevel = LogLevel.DEBUG;

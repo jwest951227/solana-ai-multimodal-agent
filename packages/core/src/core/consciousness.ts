@@ -2,12 +2,7 @@ import { Logger } from "./logger";
 import { LLMClient } from "./llm-client";
 import { type Room } from "./room";
 import { type RoomManager } from "./room-manager";
-import {
-  LogLevel,
-  type Thought,
-  type ThoughtTemplate,
-  type ThoughtType,
-} from "./types";
+import { LogLevel, type Thought } from "./types";
 import { validateLLMResponseSchema } from "./utils";
 import { z } from "zod";
 
@@ -16,46 +11,6 @@ export class Consciousness {
 
   private logger: Logger;
   private thoughtInterval: NodeJS.Timer | null = null;
-
-  private thoughtTemplates: Map<ThoughtType, ThoughtTemplate> = new Map([
-    [
-      "social_share",
-      {
-        type: "social_share",
-        description: "Generate engaging social media content",
-        prompt: `Generate content suitable for social sharing based on recent observations or insights.`,
-        temperature: 0.8,
-      },
-    ],
-    [
-      "research",
-      {
-        type: "research",
-        description: "Identify topics requiring deeper investigation",
-        prompt: `Analyze recent information and identify topics that warrant deeper research.
-Consider:
-- Emerging patterns or trends
-- Unclear or conflicting information
-- Knowledge gaps that could be valuable to fill
-- Potential opportunities or risks`,
-        temperature: 0.7,
-      },
-    ],
-    [
-      "analysis",
-      {
-        type: "analysis",
-        description: "Analyze patterns and generate insights",
-        prompt: `Review recent information and identify meaningful patterns or insights.
-Focus on:
-- Market trends and opportunities
-- User behavior patterns
-- System performance metrics
-- Emerging risks or issues`,
-        temperature: 0.6,
-      },
-    ],
-  ]);
 
   constructor(
     private llmClient: LLMClient,
@@ -148,26 +103,28 @@ Focus on:
       await this.roomManager.listRooms()
     );
 
-    const thoughtType = await this.determineThoughtType(recentMemories);
+    const prompt = `Analyze these recent memories and generate an insightful thought.
 
-    const template = this.thoughtTemplates.get(thoughtType);
-
-    if (!template) {
-      throw new Error(`No template found for thought type: ${thoughtType}`);
-    }
-
-    const prompt = `${template.prompt}
-
-    # Recent Memories
+    # Recent memories
     ${recentMemories.map((m) => `- ${m.content}`).join("\n")}
 
-    Only return the JSON object, no other text.
-    `;
+    <thinking id="thought_types">
+    1. social_share: For generating engaging social media content, observations, or insights worth sharing
+    2. research: For identifying topics that need deeper investigation or understanding
+    3. analysis: For recognizing patterns, trends, or correlations in data/behavior
+    </thinking>
+
+    <thinking id="thought_context">
+    - Patterns or trends in the conversations
+    - Knowledge gaps that need research
+    - Interesting insights worth sharing
+    - Complex topics needing analysis
+    </thinking>
+`;
 
     const response = await validateLLMResponseSchema({
       prompt,
-      systemPrompt: `
-      You are a thoughtful AI assistant that analyzes recent memories and generates meaningful insights. Your role is to:
+      systemPrompt: `You are a thoughtful AI assistant that analyzes recent memories and generates meaningful insights. Your role is to:
 
       1. Carefully evaluate the provided memories and identify key patterns, trends and relationships
       2. Generate relevant thoughts that demonstrate understanding of context and nuance
@@ -177,14 +134,35 @@ Focus on:
 
       Base your thoughts on the concrete evidence in the memories while maintaining appropriate epistemic uncertainty.
 
-      Only return the JSON object, no other text.
-      `,
+    .`,
       schema: z.object({
+        thoughtType: z.enum([
+          "trade", // new: actually place a trade
+          "notify_owner", // new: send a notification
+          "research_query",
+          "data_analysis",
+          "expert_consult",
+          "alert",
+          "report",
+          "action_recommendation",
+          "social_share",
+        ]),
         thought: z.string(),
         confidence: z.number(),
         reasoning: z.string(),
         context: z.object({
-          mood: z.enum(["contemplative", "playful", "analytical"]),
+          mood: z.enum([
+            "contemplative",
+            "playful",
+            "analytical",
+            "curious",
+            "skeptical",
+            "excited",
+            "concerned",
+            "neutral",
+            "optimistic",
+            "cautious",
+          ]),
           platform: z.enum(["twitter", "telegram", "discord"]),
           topics: z.array(z.string()),
           urgency: z.enum(["low", "medium", "high"]).optional(),
@@ -226,102 +204,16 @@ Focus on:
     return {
       content: response.thought,
       confidence: response.confidence,
-      type: thoughtType,
+      type: response.thoughtType,
       source: "consciousness",
       context: {
         reasoning: response.reasoning,
         ...response.context,
-        type: thoughtType,
+        type: response.thoughtType,
         suggestedActions: response.suggestedActions,
       },
       timestamp: new Date(),
     };
-  }
-
-  private async determineThoughtType(
-    memories: Array<{ content: string; roomId: string }>
-  ): Promise<ThoughtType> {
-    // If no memories, default to social_share to generate initial content
-    if (memories.length === 0) {
-      return "social_share";
-    }
-
-    const prompt = `Analyze these recent memories and determine the most appropriate type of thought to generate next.
-
-Recent memories:
-${memories.map((m) => `- ${m.content}`).join("\n")}
-
-Available thought types:
-1. social_share: For generating engaging social media content, observations, or insights worth sharing
-2. research: For identifying topics that need deeper investigation or understanding
-3. analysis: For recognizing patterns, trends, or correlations in data/behavior
-4. alert: For flagging important issues or opportunities that need attention
-5. inquiry: For generating questions or seeking clarification on unclear topics
-
-Consider:
-- Patterns or trends in the conversations
-- Knowledge gaps that need research
-- Urgent matters requiring alerts
-- Interesting insights worth sharing
-- Complex topics needing analysis
-`;
-
-    const response = await validateLLMResponseSchema({
-      prompt,
-      systemPrompt: `You are the brain of an agent that reasons about it's memories. You are an expert at analyzing data and making decisions. You like predicting what will happen next, and you are very good at it. You base your decisions on the context factors provided to you. You speak plain and to the point, with a dry sense of humor.`,
-      schema: z.object({
-        selectedType: z.enum([
-          "social_share",
-          "research",
-          "analysis",
-          "alert",
-          "inquiry",
-        ]),
-        confidence: z.number().min(0).max(1),
-        reasoning: z.string(),
-        contextualFactors: z.object({
-          urgency: z.enum(["low", "medium", "high"]),
-          complexity: z.enum(["low", "medium", "high"]),
-          socialRelevance: z.enum(["low", "medium", "high"]),
-          knowledgeGaps: z.array(z.string()),
-          identifiedPatterns: z.array(z.string()),
-        }),
-      }),
-      llmClient: this.llmClient,
-      logger: this.logger,
-    });
-
-    // Log the decision-making process
-    this.logger.debug(
-      "Consciousness.determineThoughtType",
-      "Thought type selection",
-      {
-        selectedType: response.selectedType,
-        confidence: response.confidence,
-        reasoning: response.reasoning,
-        factors: response.contextualFactors,
-      }
-    );
-
-    if (response.contextualFactors.urgency === "high") {
-      return "alert";
-    }
-
-    if (response.contextualFactors.knowledgeGaps.length > 2) {
-      return "research";
-    }
-
-    if (response.contextualFactors.complexity === "high") {
-      return "analysis";
-    }
-
-    if (response.confidence >= 0.7) {
-      return response.selectedType as ThoughtType;
-    }
-
-    // Fallback to random selection if confidence is low
-    const types = Array.from(this.thoughtTemplates.keys());
-    return types[Math.floor(Math.random() * types.length)];
   }
 
   private getRecentMemories(

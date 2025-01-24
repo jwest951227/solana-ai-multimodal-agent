@@ -47,8 +47,6 @@ export class Processor {
 
     const hasProcessed = await this.hasProcessedContent(contentId, room);
 
-    console.log("hasProcessed", hasProcessed);
-
     if (hasProcessed) {
       return {
         content,
