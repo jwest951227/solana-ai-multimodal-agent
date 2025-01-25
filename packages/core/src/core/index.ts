@@ -2,7 +2,7 @@ import { Orchestrator } from "./orchestrator";
 import { RoomManager } from "./room-manager";
 import { Room } from "./room";
 import { ChromaVectorDB } from "./vector-db";
-import { Processor } from "./processor";
+import { BaseProcessor } from "./processor";
 import { GoalManager } from "./goal-manager";
 import { ChainOfThought } from "./chain-of-thought";
 import { TaskScheduler } from "./task-scheduler";
@@ -16,24 +16,26 @@ import * as Providers from "./providers";
 import * as Chains from "./chains";
 import * as IO from "./io";
 import * as Types from "./types";
+import * as Processors from "./processors";
 
 export {
-    Orchestrator,
+    BaseProcessor,
+    Chains,
+    ChainOfThought,
+    ChromaVectorDB,
     Consciousness,
+    defaultCharacter,
+    GoalManager,
+    IO,
     LLMClient,
+    Logger,
+    Orchestrator,
+    Processors,
+    Providers,
+    Room,
+    RoomManager,
     StepManager,
     TaskScheduler,
-    Logger,
-    RoomManager,
-    Room,
-    ChromaVectorDB,
-    Processor,
-    GoalManager,
-    ChainOfThought,
-    Utils,
-    defaultCharacter,
-    Providers,
-    Chains,
-    IO,
     Types,
+    Utils,
 };
