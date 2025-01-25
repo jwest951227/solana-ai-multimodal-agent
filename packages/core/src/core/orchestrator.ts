@@ -2,7 +2,7 @@ import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
 import type { BaseProcessor, MessageProcessor } from "./processor";
-import type { ProcessedResult, VectorDB } from "./types";
+import type { Memory, ProcessedResult, VectorDB } from "./types";
 import { HandlerRole, LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
 import type { ScheduledTaskMongoDb } from "./scheduled-db";
@@ -66,56 +66,6 @@ export class Orchestrator {
         });
 
         this.startPolling();
-    }
-
-    public async processContent(
-        content: any,
-        source: string
-    ): Promise<ProcessedResult | null> {
-        const room = await this.roomManager.ensureRoom(source, "core");
-
-        // 1) Find the first processor that can handle it
-        const processor = Array.from(this.processors.values()).find((p) =>
-            p.canHandle(content)
-        );
-
-        const canHandle = processor !== undefined;
-
-        if (!canHandle || !processor) {
-            // No processor found; fallback
-            console.log("No suitable processor found for content:", content);
-            return null;
-        }
-
-        const availableOutputs = Array.from(this.ioHandlers.values()).filter(
-            (h) => h.role === HandlerRole.OUTPUT
-        );
-
-        const availableActions = Array.from(this.ioHandlers.values()).filter(
-            (h) => h.role === HandlerRole.ACTION
-        );
-
-        // 2) Process
-        const processedResult = await processor.process(content, room, {
-            availableOutputs,
-            availableActions,
-        });
-
-        // 3) If you want to store memory, do it here
-        // if (!processedResult.alreadyProcessed) {
-        //     await this.roomManager.addMemory(
-        //         room.id,
-        //         JSON.stringify(processedResult.content),
-        //         {
-        //             source,
-        //             type: "input",
-        //             ...processedResult.metadata,
-        //             ...processedResult.enrichedContext,
-        //         }
-        //     );
-        // }
-
-        return processedResult;
     }
 
     /**
@@ -312,26 +262,26 @@ export class Orchestrator {
             }
 
             // 3) Process with the found processor
-            const processed = await processor.process(data, room);
+            const processed = await this.processContent(data, source);
 
             // If the processor thinks we've already processed it, we skip
-            if (processed.alreadyProcessed) {
+            if (processed?.alreadyProcessed) {
                 continue;
             }
 
             // 4) Save to memory (like you do in processInputTask)
             await this.roomManager.addMemory(
                 room.id,
-                JSON.stringify(processed.content),
+                JSON.stringify(processed?.content),
                 {
                     source,
                     type: "input",
-                    ...processed.metadata,
-                    ...processed.enrichedContext,
+                    ...processed?.metadata,
+                    ...processed?.enrichedContext,
                 }
             );
 
-            if (processed.updateTasks) {
+            if (processed?.updateTasks) {
                 for (const task of processed.updateTasks) {
                     await this.scheduleTaskInDb(
                         task.name,
@@ -342,7 +292,7 @@ export class Orchestrator {
             }
 
             // 5) For each suggested output, see if it's an action or an output
-            for (const output of processed.suggestedOutputs) {
+            for (const output of processed?.suggestedOutputs ?? []) {
                 const handler = this.ioHandlers.get(output.name);
                 if (!handler) {
                     this.logger.warn(
@@ -581,6 +531,58 @@ export class Orchestrator {
                 err instanceof Error ? err.message : String(err)
             );
         }
+    }
+
+    public async processContent(
+        content: any,
+        source: string
+    ): Promise<ProcessedResult | null> {
+        let memories: Memory[] = [];
+
+        if (content.room) {
+            const room = await this.roomManager.ensureRoom(
+                content.room,
+                source
+            );
+            memories = await this.roomManager.getMemoriesFromRoom(room.id);
+
+            this.logger.debug(
+                "Orchestrator.processContent",
+                "Processing content with context",
+                {
+                    content,
+                    source,
+                    roomId: room.id,
+                    relevantMemories: memories,
+                }
+            );
+        }
+
+        const processor = Array.from(this.processors.values()).find((p) =>
+            p.canHandle(content)
+        );
+
+        if (!processor) {
+            this.logger.debug(
+                "Orchestrator.processContent",
+                "No suitable processor found for content",
+                { content }
+            );
+            return null;
+        }
+
+        const availableOutputs = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.OUTPUT
+        );
+
+        const availableActions = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.ACTION
+        );
+
+        return processor.process(content, JSON.stringify(memories), {
+            availableOutputs,
+            availableActions,
+        });
     }
 
     /**

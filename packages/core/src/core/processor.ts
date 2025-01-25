@@ -1,6 +1,5 @@
 import { LLMClient } from "./llm-client";
 import { Logger } from "./logger";
-import { Room } from "./room";
 
 import type { Character, ProcessedResult, SuggestedOutput } from "./types";
 import { LogLevel } from "./types";
@@ -41,7 +40,7 @@ export abstract class BaseProcessor {
      */
     public abstract process(
         content: any,
-        room: Room,
+        otherContext: string,
         ioContext?: {
             availableOutputs: IOHandler[];
             availableActions: IOHandler[];
@@ -74,7 +73,7 @@ export class MessageProcessor extends BaseProcessor {
 
     async process(
         content: any,
-        room: Room,
+        otherContext: string,
         ioContext?: {
             availableOutputs: IOHandler[];
             availableActions: IOHandler[];
@@ -82,42 +81,10 @@ export class MessageProcessor extends BaseProcessor {
     ): Promise<ProcessedResult> {
         this.logger.debug("Processor.process", "Processing content", {
             content,
-            roomId: room.id,
         });
-
-        // const contentId = this.generateContentId(content);
-
-        // const hasProcessed = await this.hasProcessedContent(contentId, room);
-
-        // if (hasProcessed) {
-        //     return {
-        //         content,
-        //         metadata: {},
-        //         enrichedContext: {
-        //             timeContext: getTimeContext(new Date()),
-        //             summary: "",
-        //             topics: [],
-        //             relatedMemories: [],
-        //             sentiment: "neutral",
-        //             entities: [],
-        //             intent: "unknown",
-        //             availableOutputs: Array.from(this.ioHandlers.keys()),
-        //         },
-        //         suggestedOutputs: [],
-        //         alreadyProcessed: true,
-        //     };
-        // }
 
         const contentStr =
             typeof content === "string" ? content : JSON.stringify(content);
-
-        // TODO: fix this abstraction
-        // // Get related memories first since we'll need them for context
-        // const relatedMemories = await this.vectorDb.findSimilarInRoom(
-        //     contentStr,
-        //     room.id,
-        //     3
-        // );
 
         const outputsSchemaPart = ioContext?.availableOutputs
             .map((handler) => {
@@ -133,9 +100,11 @@ export class MessageProcessor extends BaseProcessor {
 
         const prompt = `Analyze the following content and provide a complete analysis:
 
-# New Content to process: 
-${contentStr}
+  # New Content to process: 
+  ${contentStr}
 
+  # Other context:
+  ${otherContext}
 
   # Available Outputs:
   ${outputsSchemaPart}

@@ -1668,4 +1668,42 @@ export class ChromaVectorDB implements VectorDB {
             throw error;
         }
     }
+
+    /**
+     * Gets all memories from a specific room's collection, optionally limited to a certain number
+     */
+    public async getMemoriesFromRoom(
+        roomId: string,
+        limit?: number
+    ): Promise<{ content: string; metadata?: Record<string, any> }[]> {
+        try {
+            const collection = await this.getCollectionForRoom(roomId);
+
+            // Get all documents from the collection, with optional limit
+            const results = await collection.get({
+                limit,
+                include: ["documents", "metadatas"] as IncludeEnum[],
+            });
+
+            if (!results.ids.length) {
+                return [];
+            }
+
+            return results.ids.map((_, idx) => ({
+                content: results.documents[idx] || "",
+                metadata: results.metadatas?.[idx] || {},
+            }));
+        } catch (error) {
+            this.logger.error(
+                "ChromaVectorDB.getMemoriesFromRoom",
+                "Failed to get memories",
+                {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                    roomId,
+                }
+            );
+            throw error;
+        }
+    }
 }

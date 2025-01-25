@@ -103,10 +103,19 @@ async function main() {
                 return null;
             }
 
-            return mentions;
+            return mentions.map((mention) => ({
+                type: "tweet",
+                room: mention.metadata.conversationId,
+                messageId: mention.metadata.tweetId,
+                user: mention.metadata.username,
+                content: mention.content,
+                metadata: mention,
+            }));
         },
         schema: z.object({
             type: z.string(),
+            room: z.string(),
+            user: z.string(),
             content: z.string(),
             metadata: z.record(z.any()),
         }),
