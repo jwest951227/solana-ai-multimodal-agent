@@ -1,5 +1,5 @@
 {
-    "name": "daydreams",
+    "name": "solana_ai_multimodal-agent",
     "version": "0.0.0",
     "scripts": {
         "goal": "bun run examples/example-goal.ts",
