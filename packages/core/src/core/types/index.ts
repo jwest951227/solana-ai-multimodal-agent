@@ -284,6 +284,12 @@ export interface ProcessedResult {
     suggestedOutputs: SuggestedOutput<any>[];
     isOutputSuccess?: boolean;
     alreadyProcessed?: boolean;
+    updateTasks?: {
+        name: string;
+        data?: any;
+        confidence: number;
+        intervalMs: number;
+    }[];
 }
 
 export interface SuggestedOutput<T> {
@@ -554,14 +560,8 @@ export interface IOHandler {
     /** "input" | "output" | (optionally "action") if you want more roles */
     role: HandlerRole;
 
-    /** For input handlers with recurring scheduling */
-    interval?: number;
-
     /** The schema for the input handler */
     schema: z.ZodType<any>;
-
-    /** Next run time (timestamp in ms); for input scheduling. */
-    nextRun?: number;
 
     /** The main function. For inputs, no payload is typically passed. For outputs, pass the data. */
     handler: (payload?: unknown) => Promise<unknown>;

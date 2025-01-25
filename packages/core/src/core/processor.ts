@@ -69,20 +69,19 @@ export class Processor {
         const contentStr =
             typeof content === "string" ? content : JSON.stringify(content);
 
-        // Get related memories first since we'll need them for context
-        const relatedMemories = await this.vectorDb.findSimilarInRoom(
-            contentStr,
-            room.id,
-            3
-        );
+        // TODO: fix this abstraction
+        // // Get related memories first since we'll need them for context
+        // const relatedMemories = await this.vectorDb.findSimilarInRoom(
+        //     contentStr,
+        //     room.id,
+        //     3
+        // );
 
         const prompt = `Analyze the following content and provide a complete analysis:
 
 # New Content to process: 
 ${contentStr}
 
-# Related Context:
-${relatedMemories.map((m: SearchResult) => `- ${m.content}`).join("\n")}
 
 # Available Outputs:
 ${Array.from(this.ioHandlers.entries())
@@ -111,6 +110,11 @@ ${Array.from(this.ioHandlers.entries())
   1. Suggested outputs/actions based on the available handlers based on the content and the available handlers. 
   2. If the content is a message, use the personality of the character to determine if the output was successful.
   3. If possible you should include summary of the content in the output for the user to avoid more processing.
+  </thinking>
+
+  <thinking id="task_suggestion">
+  1. Suggested tasks based on the available handlers based on the content and the available handlers. 
+  2. Only make tasks if you have been told, based off what you think is possible.
   </thinking>
 
   <thinking id="message_personality">
@@ -152,6 +156,30 @@ ${Array.from(this.ioHandlers.entries())
                             .string()
                             .describe("The intent of the content"),
                     }),
+                    updateTasks: z
+                        .array(
+                            z.object({
+                                name: z
+                                    .string()
+                                    .describe(
+                                        "The name of the task to schedule. This should be a handler name."
+                                    ),
+                                confidence: z
+                                    .number()
+                                    .describe("The confidence score (0-1)"),
+                                intervalMs: z
+                                    .number()
+                                    .describe("The interval in milliseconds"),
+                                data: z
+                                    .any()
+                                    .describe(
+                                        "The data that matches the task's schema"
+                                    ),
+                            })
+                        )
+                        .describe(
+                            "Suggested tasks to schedule based on the content and the available handlers. Making this will mean the handlers will be called in the future."
+                        ),
                     suggestedOutputs: z.array(
                         z.object({
                             name: z
@@ -160,7 +188,7 @@ ${Array.from(this.ioHandlers.entries())
                             data: z
                                 .any()
                                 .describe(
-                                    "The data that matches the output's schema"
+                                    "The data that matches the output's schema. leave empty if you don't have any data to provide."
                                 ),
                             confidence: z
                                 .number()
@@ -175,7 +203,12 @@ ${Array.from(this.ioHandlers.entries())
                 logger: this.logger,
             });
 
-            await this.markContentAsProcessed(contentId, room);
+            // await this.markContentAsProcessed(contentId, room);
+
+            this.logger.debug("Processor.process", "Processed content", {
+                content,
+                result,
+            });
 
             return {
                 content,
@@ -186,11 +219,10 @@ ${Array.from(this.ioHandlers.entries())
                 enrichedContext: {
                     ...result.enrichment,
                     timeContext: this.getTimeContext(new Date()),
-                    relatedMemories: relatedMemories.map(
-                        (m: SearchResult) => m.content
-                    ),
+                    relatedMemories: [], // TODO: fix this abstraction
                     availableOutputs: Array.from(this.ioHandlers.keys()),
                 },
+                updateTasks: result.updateTasks,
                 suggestedOutputs:
                     result.suggestedOutputs as SuggestedOutput<any>[],
                 alreadyProcessed: false,

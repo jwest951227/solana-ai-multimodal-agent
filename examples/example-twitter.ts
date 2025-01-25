@@ -21,179 +21,201 @@ import { defaultCharacter } from "../packages/core/src/core/character";
 import { Consciousness } from "../packages/core/src/core/consciousness";
 import { z } from "zod";
 import readline from "readline";
-import FirecrawlApp from "@mendable/firecrawl-js";
+import { ScheduledTaskMongoDb } from "../packages/core/src/core/scheduled-db";
 
 async function main() {
-  const loglevel = LogLevel.DEBUG;
-  // Initialize core dependencies
-  const vectorDb = new ChromaVectorDB("twitter_agent", {
-    chromaUrl: "http://localhost:8000",
-    logLevel: loglevel,
-  });
+    const loglevel = LogLevel.DEBUG;
+    // Initialize core dependencies
+    const vectorDb = new ChromaVectorDB("twitter_agent", {
+        chromaUrl: "http://localhost:8000",
+        logLevel: loglevel,
+    });
 
-  await vectorDb.purge(); // Clear previous session data
+    await vectorDb.purge(); // Clear previous session data
 
-  const roomManager = new RoomManager(vectorDb);
+    const roomManager = new RoomManager(vectorDb);
 
-  const llmClient = new LLMClient({
-    model: "anthropic/claude-3-5-sonnet-latest", // Using a known supported model
-    temperature: 0.3,
-  });
+    const llmClient = new LLMClient({
+        model: "anthropic/claude-3-5-sonnet-latest", // Using a known supported model
+        temperature: 0.3,
+    });
 
-  // Initialize processor with default character personality
-  const processor = new Processor(
-    vectorDb,
-    llmClient,
-    defaultCharacter,
-    loglevel
-  );
+    // Initialize processor with default character personality
+    const processor = new Processor(
+        vectorDb,
+        llmClient,
+        defaultCharacter,
+        loglevel
+    );
 
-  // Initialize core system
-  const core = new Orchestrator(roomManager, vectorDb, processor, {
-    level: loglevel,
-    enableColors: true,
-    enableTimestamp: true,
-  });
+    const scheduledTaskDb = new ScheduledTaskMongoDb(
+        "mongodb://localhost:27017",
+        "myApp",
+        "scheduled_tasks"
+    );
 
-  // Set up Twitter client with credentials
-  const twitter = new TwitterClient(
-    {
-      username: env.TWITTER_USERNAME,
-      password: env.TWITTER_PASSWORD,
-      email: env.TWITTER_EMAIL,
-    },
-    loglevel
-  );
+    await scheduledTaskDb.connect();
+    console.log(chalk.green("✅ Scheduled task database connected"));
 
-  // Initialize autonomous thought generation
-  const consciousness = new Consciousness(llmClient, roomManager, {
-    intervalMs: 300000, // Think every 5 minutes
-    minConfidence: 0.7,
-    logLevel: loglevel,
-  });
+    await scheduledTaskDb.deleteAll();
 
-  //   Register input handler for Twitter mentions
-  core.registerIOHandler({
-    name: "twitter_mentions",
-    role: HandlerRole.INPUT,
-    handler: async () => {
-      console.log(chalk.blue("🔍 Checking Twitter mentions..."));
-      // Create a static mentions input handler
-      const mentionsInput = twitter.createMentionsInput(60000);
-      const mentions = await mentionsInput.handler();
+    // Initialize core system
+    const core = new Orchestrator(
+        roomManager,
+        vectorDb,
+        processor,
+        scheduledTaskDb,
+        {
+            level: loglevel,
+            enableColors: true,
+            enableTimestamp: true,
+        }
+    );
 
-      // If no new mentions, return null to skip processing
-      if (!mentions || mentions.length === 0) {
-        return null;
-      }
+    // Set up Twitter client with credentials
+    const twitter = new TwitterClient(
+        {
+            username: env.TWITTER_USERNAME,
+            password: env.TWITTER_PASSWORD,
+            email: env.TWITTER_EMAIL,
+        },
+        loglevel
+    );
 
-      return mentions;
-    },
-    schema: z.object({
-      type: z.string(),
-      content: z.string(),
-      metadata: z.record(z.any()),
-    }),
-    interval: 60000, // Check mentions every minute
-  });
+    // Initialize autonomous thought generation
+    const consciousness = new Consciousness(llmClient, roomManager, {
+        intervalMs: 300000, // Think every 5 minutes
+        minConfidence: 0.7,
+        logLevel: loglevel,
+    });
 
-  // Register input handler for autonomous thoughts
-  core.registerIOHandler({
-    name: "consciousness_thoughts",
-    role: HandlerRole.INPUT,
-    handler: async () => {
-      console.log(chalk.blue("🧠 Generating thoughts..."));
-      const thought = await consciousness.start();
+    //   Register input handler for Twitter mentions
+    core.registerIOHandler({
+        name: "twitter_mentions",
+        role: HandlerRole.INPUT,
+        handler: async () => {
+            console.log(chalk.blue("🔍 Checking Twitter mentions..."));
+            // Create a static mentions input handler
+            const mentionsInput = twitter.createMentionsInput(60000);
+            const mentions = await mentionsInput.handler();
 
-      // If no thought was generated or it was already processed, skip
-      if (!thought || !thought.content) {
-        return null;
-      }
+            // If no new mentions, return null to skip processing
+            if (!mentions || mentions.length === 0) {
+                return null;
+            }
 
-      return thought;
-    },
-    schema: z.object({
-      type: z.string(),
-      content: z.string(),
-      metadata: z.record(z.any()),
-    }),
-    interval: 30000, // Generate thoughts every 30 seconds
-  });
+            return mentions;
+        },
+        schema: z.object({
+            type: z.string(),
+            content: z.string(),
+            metadata: z.record(z.any()),
+        }),
+    });
 
-  // Register output handler for posting thoughts to Twitter
-  core.registerIOHandler({
-    name: "twitter_thought",
-    role: HandlerRole.OUTPUT,
-    handler: async (data: unknown) => {
-      const thoughtData = data as { content: string };
+    // Register input handler for autonomous thoughts
+    core.registerIOHandler({
+        name: "consciousness_thoughts",
+        role: HandlerRole.INPUT,
+        handler: async () => {
+            console.log(chalk.blue("🧠 Generating thoughts..."));
+            const thought = await consciousness.start();
 
-      return twitter.createTweetOutput().handler({
-        content: thoughtData.content,
-      });
-    },
-    schema: z
-      .object({
-        content: z
-          .string()
-          .regex(/^[\x20-\x7E]*$/, "No emojis or non-ASCII characters allowed"),
-      })
-      .describe(
-        "This is the content of the tweet you are posting. It should be a string of text that is 280 characters or less. Use this to post a tweet on the timeline."
-      ),
-  });
+            // If no thought was generated or it was already processed, skip
+            if (!thought || !thought.content) {
+                return null;
+            }
 
-  // Register output handler for Twitter replies
-  core.registerIOHandler({
-    name: "twitter_reply",
-    role: HandlerRole.OUTPUT,
-    handler: async (data: unknown) => {
-      const tweetData = data as { content: string; inReplyTo: string };
+            return thought;
+        },
+        schema: z.object({
+            type: z.string(),
+            content: z.string(),
+            metadata: z.record(z.any()),
+        }),
+    });
 
-      return twitter.createTweetOutput().handler(tweetData);
-    },
-    schema: z
-      .object({
-        content: z.string(),
-        inReplyTo: z
-          .string()
-          .optional()
-          .describe("The tweet ID to reply to, if any"),
-      })
-      .describe(
-        "If you have been tagged or mentioned in the tweet, use this. This is for replying to tweets."
-      ),
-  });
+    // Register output handler for posting thoughts to Twitter
+    core.registerIOHandler({
+        name: "twitter_thought",
+        role: HandlerRole.OUTPUT,
+        handler: async (data: unknown) => {
+            const thoughtData = data as { content: string };
 
-  // Set up readline interface
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+            return twitter.createTweetOutput().handler({
+                content: thoughtData.content,
+            });
+        },
+        schema: z
+            .object({
+                content: z
+                    .string()
+                    .regex(
+                        /^[\x20-\x7E]*$/,
+                        "No emojis or non-ASCII characters allowed"
+                    ),
+            })
+            .describe(
+                "This is the content of the tweet you are posting. It should be a string of text that is 280 characters or less. Use this to post a tweet on the timeline."
+            ),
+    });
 
-  // Start the prompt loop
-  console.log(chalk.cyan("🤖 Bot is now running and monitoring Twitter..."));
-  console.log(chalk.cyan("You can type messages in the console."));
-  console.log(chalk.cyan('Type "exit" to quit'));
+    // Schedule a task to run every minute
+    await core.scheduleTaskInDb("twitter_mentions", {}, 6000); // Check mentions every minute
+    await core.scheduleTaskInDb("consciousness_thoughts", {}, 30000); // Think every 5 minutes
 
-  // Handle graceful shutdown
-  process.on("SIGINT", async () => {
-    console.log(chalk.yellow("\n\nShutting down..."));
+    // Register output handler for Twitter replies
+    core.registerIOHandler({
+        name: "twitter_reply",
+        role: HandlerRole.OUTPUT,
+        handler: async (data: unknown) => {
+            const tweetData = data as { content: string; inReplyTo: string };
 
-    // Clean up resources
-    await consciousness.stop();
-    core.removeIOHandler("twitter_mentions");
-    core.removeIOHandler("consciousness_thoughts");
-    core.removeIOHandler("twitter_reply");
-    core.removeIOHandler("twitter_thought");
-    rl.close();
+            return twitter.createTweetOutput().handler(tweetData);
+        },
+        schema: z
+            .object({
+                content: z.string(),
+                inReplyTo: z
+                    .string()
+                    .optional()
+                    .describe("The tweet ID to reply to, if any"),
+            })
+            .describe(
+                "If you have been tagged or mentioned in the tweet, use this. This is for replying to tweets."
+            ),
+    });
 
-    console.log(chalk.green("✅ Shutdown complete"));
-    process.exit(0);
-  });
+    // Set up readline interface
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+
+    // Start the prompt loop
+    console.log(chalk.cyan("🤖 Bot is now running and monitoring Twitter..."));
+    console.log(chalk.cyan("You can type messages in the console."));
+    console.log(chalk.cyan('Type "exit" to quit'));
+
+    // Handle graceful shutdown
+    process.on("SIGINT", async () => {
+        console.log(chalk.yellow("\n\nShutting down..."));
+
+        // Clean up resources
+        await consciousness.stop();
+        core.removeIOHandler("twitter_mentions");
+        core.removeIOHandler("consciousness_thoughts");
+        core.removeIOHandler("twitter_reply");
+        core.removeIOHandler("twitter_thought");
+        rl.close();
+
+        console.log(chalk.green("✅ Shutdown complete"));
+        process.exit(0);
+    });
 }
 
 // Run the example
 main().catch((error) => {
-  console.error(chalk.red("Fatal error:"), error);
-  process.exit(1);
+    console.error(chalk.red("Fatal error:"), error);
+    process.exit(1);
 });

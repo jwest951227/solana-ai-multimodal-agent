@@ -3,8 +3,10 @@ import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
 import type { Processor } from "./processor";
 import type { VectorDB } from "./types";
-import { LogLevel, type LoggerConfig } from "./types";
+import { HandlerRole, LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
+import type { ScheduledTaskMongoDb } from "./scheduled-db";
+import type { ObjectId } from "mongodb";
 
 /**
  * Orchestrator system that manages both "input" and "output" handlers
@@ -17,6 +19,8 @@ export class Orchestrator {
      */
     private readonly ioHandlers = new Map<string, IOHandler>();
 
+    private pollIntervalId?: ReturnType<typeof setInterval>;
+
     /**
      * A TaskScheduler that only schedules and runs input handlers
      */
@@ -27,6 +31,8 @@ export class Orchestrator {
     private readonly logger: Logger;
     private readonly processor: Processor;
 
+    private readonly scheduledTaskDb: ScheduledTaskMongoDb;
+
     /**
      * Other references in your system. Adjust as needed.
      */
@@ -35,11 +41,12 @@ export class Orchestrator {
         private readonly roomManager: RoomManager,
         vectorDb: VectorDB,
         processor: Processor,
+        scheduledTaskDb: ScheduledTaskMongoDb,
         config?: LoggerConfig
     ) {
         this.vectorDb = vectorDb;
         this.processor = processor;
-
+        this.scheduledTaskDb = scheduledTaskDb;
         this.logger = new Logger(
             config ?? {
                 level: LogLevel.ERROR,
@@ -52,6 +59,8 @@ export class Orchestrator {
         this.inputScheduler = new TaskScheduler(async (handler) => {
             await this.processInputTask(handler);
         });
+
+        this.startPolling();
     }
 
     /**
@@ -71,37 +80,15 @@ export class Orchestrator {
         }
         this.ioHandlers.set(handler.name, handler);
 
-        // If it's an "input" and has an interval, schedule it
-        if (handler.role === "input" && handler.interval) {
-            // Ensure nextRun is definitely set
-            const scheduledHandler = {
-                ...handler,
-                nextRun: handler.nextRun ?? Date.now(),
-            };
-            this.inputScheduler.scheduleTask(scheduledHandler);
+        this.processor.registerIOHandler(handler);
 
-            this.logger.info(
-                "Orchestrator.registerIOHandler",
-                "Registered recurring input",
-                {
-                    name: handler.name,
-                    interval: handler.interval,
-                    nextRun: scheduledHandler.nextRun,
-                }
-            );
-        } else {
-            // Register the handler with the processor
-            this.processor.registerIOHandler(handler);
-
-            // For outputs (or non-recurring inputs), just log
-            this.logger.info(
-                "Orchestrator.registerIOHandler",
-                `Registered ${handler.role}`,
-                {
-                    name: handler.name,
-                }
-            );
-        }
+        this.logger.info(
+            "Orchestrator.registerIOHandler",
+            `Registered ${handler.role}`,
+            {
+                name: handler.name,
+            }
+        );
     }
 
     /**
@@ -162,17 +149,6 @@ export class Orchestrator {
             const result = await handler.handler();
             if (!result) return;
 
-            // Re-schedule if it’s a recurring input
-            if (handler.interval && handler.interval > 0) {
-                const scheduledHandler = {
-                    ...handler,
-                    nextRun: Date.now() + handler.interval,
-                };
-                this.inputScheduler.scheduleTask(scheduledHandler);
-            } else {
-                this.removeIOHandler(handler.name);
-            }
-
             if (Array.isArray(result)) {
                 for (const item of result) {
                     await this.runAutonomousFlow(item, handler.name);
@@ -195,7 +171,6 @@ export class Orchestrator {
                               }
                             : error,
                     handlerType: handler.role,
-                    interval: handler.interval,
                 }
             );
         }
@@ -293,6 +268,16 @@ export class Orchestrator {
                 }
             );
 
+            if (processed.updateTasks) {
+                for (const task of processed.updateTasks) {
+                    await this.scheduleTaskInDb(
+                        task.name,
+                        task.data,
+                        task.intervalMs
+                    );
+                }
+            }
+
             // 4) For each suggested output, see if it’s an action or an output
             for (const output of processed.suggestedOutputs) {
                 const handler = this.ioHandlers.get(output.name);
@@ -304,12 +289,12 @@ export class Orchestrator {
                     continue;
                 }
 
-                if (handler.role === "output") {
+                if (handler.role === HandlerRole.OUTPUT) {
                     outputs.push({ name: output.name, data: output.data });
 
                     // Dispatch to an output handler (e.g. send a Slack message)
                     await this.dispatchToOutput(output.name, output.data);
-                } else if (handler.role === "action") {
+                } else if (handler.role === HandlerRole.ACTION) {
                     // Execute an action (e.g. fetch data from an API), wait for the result
                     const actionResult = await this.dispatchToAction(
                         output.name,
@@ -373,7 +358,6 @@ export class Orchestrator {
         try {
             const result = await handler.handler(data);
             if (result) {
-                // Use our runAutonomousFlow chain approach
                 return await this.runAutonomousFlow(result, handler.name);
             }
             return [];
@@ -387,11 +371,163 @@ export class Orchestrator {
         }
     }
 
+    public async scheduleTaskInDb(
+        handlerName: string,
+        data: Record<string, unknown> = {},
+        intervalMs?: number
+    ): Promise<ObjectId> {
+        const now = Date.now();
+        const nextRunAt = new Date(now + (intervalMs ?? 0));
+
+        this.logger.info(
+            "Orchestrator.scheduleTaskInDb",
+            `Scheduling task ${handlerName}`,
+            {
+                nextRunAt,
+                intervalMs,
+            }
+        );
+
+        return await this.scheduledTaskDb.createTask(
+            handlerName,
+            {
+                request: handlerName,
+                task_data: JSON.stringify(data),
+            },
+            nextRunAt,
+            intervalMs
+        );
+    }
+
+    public startPolling(everyMs = 10_000): void {
+        // Stop existing polling if it exists
+        if (this.pollIntervalId) {
+            clearInterval(this.pollIntervalId);
+        }
+
+        this.pollIntervalId = setInterval(() => {
+            this.pollScheduledTasks().catch((err) => {
+                this.logger.error(
+                    "Orchestrator.startPolling",
+                    "Error in pollScheduledTasks",
+                    err
+                );
+            });
+        }, everyMs);
+
+        this.logger.info(
+            "Orchestrator.startPolling",
+            "Started polling for scheduled tasks",
+            {
+                intervalMs: everyMs,
+            }
+        );
+    }
+
+    private async pollScheduledTasks() {
+        try {
+            // Guard against undefined collection
+            if (!this.scheduledTaskDb) {
+                this.logger.error(
+                    "pollScheduledTasks error",
+                    "scheduledTaskDb is not initialized"
+                );
+                return;
+            }
+
+            const tasks = await this.scheduledTaskDb.findDueTasks();
+            if (!tasks) {
+                return;
+            }
+
+            for (const task of tasks) {
+                if (!task._id) {
+                    this.logger.error(
+                        "pollScheduledTasks error",
+                        "Task is missing _id"
+                    );
+                    continue;
+                }
+
+                // 2. Mark them as 'running' (or handle concurrency the way you want)
+                await this.scheduledTaskDb.markRunning(task._id);
+
+                const handler = this.ioHandlers.get(task.handlerName);
+                if (!handler) {
+                    throw new Error(`No handler found: ${task.handlerName}`);
+                }
+
+                const taskData =
+                    typeof task.taskData.task_data === "string"
+                        ? JSON.parse(task.taskData.task_data)
+                        : task.taskData;
+
+                if (handler.role === HandlerRole.INPUT) {
+                    try {
+                        await this.dispatchToInput(task.handlerName, taskData);
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                } else if (handler.role === HandlerRole.ACTION) {
+                    try {
+                        const actionResult = await this.dispatchToAction(
+                            task.handlerName,
+                            taskData
+                        );
+                        if (actionResult) {
+                            await this.runAutonomousFlow(
+                                actionResult,
+                                task.handlerName
+                            );
+                        }
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                } else if (handler.role === HandlerRole.OUTPUT) {
+                    try {
+                        await this.dispatchToOutput(task.handlerName, taskData);
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                }
+
+                // 4. If the task is recurring (interval_ms), update next_run_at
+                if (task.intervalMs) {
+                    const nextRunAt = new Date(Date.now() + task.intervalMs);
+                    await this.scheduledTaskDb.updateNextRun(
+                        task._id,
+                        nextRunAt
+                    );
+                } else {
+                    // Otherwise, mark completed
+                    await this.scheduledTaskDb.markCompleted(task._id);
+                }
+            }
+        } catch (err) {
+            this.logger.error(
+                "pollScheduledTasks error",
+                err instanceof Error ? err.message : String(err)
+            );
+        }
+    }
+
     /**
      * Stops all scheduled tasks and shuts down the orchestrator.
      */
     public stop(): void {
         this.inputScheduler.stop();
+        if (this.pollIntervalId) {
+            clearInterval(this.pollIntervalId);
+        }
         this.logger.info("Orchestrator.stop", "All scheduled inputs stopped.");
     }
 }
