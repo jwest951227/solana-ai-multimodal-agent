@@ -12,7 +12,7 @@ import { HandlerRole } from "../packages/core/src/core/types";
 import { TwitterClient } from "../packages/core/src/core/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
-import { Processor } from "../packages/core/src/core/processor";
+import { MessageProcessor } from "../packages/core/src/core/processor";
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { env } from "../packages/core/src/core/env";
 import { LogLevel } from "../packages/core/src/core/types";
@@ -41,8 +41,7 @@ async function main() {
     });
 
     // Initialize processor with default character personality
-    const processor = new Processor(
-        vectorDb,
+    const processor = new MessageProcessor(
         llmClient,
         defaultCharacter,
         loglevel
@@ -63,7 +62,7 @@ async function main() {
     const core = new Orchestrator(
         roomManager,
         vectorDb,
-        processor,
+        [processor],
         scheduledTaskDb,
         {
             level: loglevel,

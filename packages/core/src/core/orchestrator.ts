@@ -1,8 +1,8 @@
 import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
-import type { Processor } from "./processor";
-import type { VectorDB } from "./types";
+import type { BaseProcessor, MessageProcessor } from "./processor";
+import type { ProcessedResult, VectorDB } from "./types";
 import { HandlerRole, LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
 import type { ScheduledTaskMongoDb } from "./scheduled-db";
@@ -21,6 +21,8 @@ export class Orchestrator {
 
     private pollIntervalId?: ReturnType<typeof setInterval>;
 
+    private processors: Map<string, BaseProcessor> = new Map();
+
     /**
      * A TaskScheduler that only schedules and runs input handlers
      */
@@ -29,7 +31,6 @@ export class Orchestrator {
     >;
 
     private readonly logger: Logger;
-    private readonly processor: Processor;
 
     private readonly scheduledTaskDb: ScheduledTaskMongoDb;
 
@@ -40,12 +41,16 @@ export class Orchestrator {
     constructor(
         private readonly roomManager: RoomManager,
         vectorDb: VectorDB,
-        processor: Processor,
+        processors: BaseProcessor[],
         scheduledTaskDb: ScheduledTaskMongoDb,
         config?: LoggerConfig
     ) {
         this.vectorDb = vectorDb;
-        this.processor = processor;
+        this.processors = new Map(
+            processors.map((p) => {
+                return [p.getName(), p];
+            })
+        );
         this.scheduledTaskDb = scheduledTaskDb;
         this.logger = new Logger(
             config ?? {
@@ -61,6 +66,56 @@ export class Orchestrator {
         });
 
         this.startPolling();
+    }
+
+    public async processContent(
+        content: any,
+        source: string
+    ): Promise<ProcessedResult | null> {
+        const room = await this.roomManager.ensureRoom(source, "core");
+
+        // 1) Find the first processor that can handle it
+        const processor = Array.from(this.processors.values()).find((p) =>
+            p.canHandle(content)
+        );
+
+        const canHandle = processor !== undefined;
+
+        if (!canHandle || !processor) {
+            // No processor found; fallback
+            console.log("No suitable processor found for content:", content);
+            return null;
+        }
+
+        const availableOutputs = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.OUTPUT
+        );
+
+        const availableActions = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.ACTION
+        );
+
+        // 2) Process
+        const processedResult = await processor.process(content, room, {
+            availableOutputs,
+            availableActions,
+        });
+
+        // 3) If you want to store memory, do it here
+        // if (!processedResult.alreadyProcessed) {
+        //     await this.roomManager.addMemory(
+        //         room.id,
+        //         JSON.stringify(processedResult.content),
+        //         {
+        //             source,
+        //             type: "input",
+        //             ...processedResult.metadata,
+        //             ...processedResult.enrichedContext,
+        //         }
+        //     );
+        // }
+
+        return processedResult;
     }
 
     /**
@@ -79,8 +134,6 @@ export class Orchestrator {
             );
         }
         this.ioHandlers.set(handler.name, handler);
-
-        this.processor.registerIOHandler(handler);
 
         this.logger.info(
             "Orchestrator.registerIOHandler",
@@ -248,15 +301,25 @@ export class Orchestrator {
             // 1) Ensure there's a room
             const room = await this.roomManager.ensureRoom(source, "core");
 
-            // 2) Process with your existing processor logic
-            const processed = await this.processor.process(data, room);
+            // 2) Find the first processor that can handle it
+            const processor = Array.from(this.processors.values()).find((p) =>
+                p.canHandle(data)
+            );
+
+            if (!processor) {
+                // this.logger.warn("No processor found for data", { source });
+                continue;
+            }
+
+            // 3) Process with the found processor
+            const processed = await processor.process(data, room);
 
             // If the processor thinks we've already processed it, we skip
             if (processed.alreadyProcessed) {
                 continue;
             }
 
-            // 3) Save to memory (like you do in processInputTask)
+            // 4) Save to memory (like you do in processInputTask)
             await this.roomManager.addMemory(
                 room.id,
                 JSON.stringify(processed.content),
@@ -278,7 +341,7 @@ export class Orchestrator {
                 }
             }
 
-            // 4) For each suggested output, see if it’s an action or an output
+            // 5) For each suggested output, see if it's an action or an output
             for (const output of processed.suggestedOutputs) {
                 const handler = this.ioHandlers.get(output.name);
                 if (!handler) {
