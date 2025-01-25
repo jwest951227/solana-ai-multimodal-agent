@@ -22,7 +22,7 @@ import readline from "readline";
 import { ScheduledTaskMongoDb } from "../packages/core/src/core/scheduled-db";
 
 async function main() {
-    const loglevel = LogLevel.INFO;
+    const loglevel = LogLevel.DEBUG;
     // Initialize core dependencies
     const vectorDb = new ChromaVectorDB("twitter_agent", {
         chromaUrl: "http://localhost:8000",
@@ -51,6 +51,11 @@ async function main() {
         "myApp",
         "scheduled_tasks"
     );
+
+    await scheduledTaskDb.connect();
+    console.log(chalk.green("✅ Scheduled task database connected"));
+
+    await scheduledTaskDb.deleteAll();
 
     // Initialize core system
     const orchestrator = new Orchestrator(

@@ -3,7 +3,7 @@ import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
 import type { Processor } from "./processor";
 import type { VectorDB } from "./types";
-import { LogLevel, type LoggerConfig } from "./types";
+import { HandlerRole, LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
 import type { ScheduledTaskMongoDb } from "./scheduled-db";
 import type { ObjectId } from "mongodb";
@@ -149,17 +149,6 @@ export class Orchestrator {
             const result = await handler.handler();
             if (!result) return;
 
-            // Re-schedule if it’s a recurring input
-            // if (handler.interval && handler.interval > 0) {
-            //     const scheduledHandler = {
-            //         ...handler,
-            //         nextRun: Date.now() + handler.interval,
-            //     };
-            //     this.inputScheduler.scheduleTask(scheduledHandler);
-            // } else {
-            //     this.removeIOHandler(handler.name);
-            // }
-
             if (Array.isArray(result)) {
                 for (const item of result) {
                     await this.runAutonomousFlow(item, handler.name);
@@ -279,6 +268,16 @@ export class Orchestrator {
                 }
             );
 
+            if (processed.updateTasks) {
+                for (const task of processed.updateTasks) {
+                    await this.scheduleTaskInDb(
+                        task.name,
+                        task.data,
+                        task.intervalMs
+                    );
+                }
+            }
+
             // 4) For each suggested output, see if it’s an action or an output
             for (const output of processed.suggestedOutputs) {
                 const handler = this.ioHandlers.get(output.name);
@@ -290,12 +289,12 @@ export class Orchestrator {
                     continue;
                 }
 
-                if (handler.role === "output") {
+                if (handler.role === HandlerRole.OUTPUT) {
                     outputs.push({ name: output.name, data: output.data });
 
                     // Dispatch to an output handler (e.g. send a Slack message)
                     await this.dispatchToOutput(output.name, output.data);
-                } else if (handler.role === "action") {
+                } else if (handler.role === HandlerRole.ACTION) {
                     // Execute an action (e.g. fetch data from an API), wait for the result
                     const actionResult = await this.dispatchToAction(
                         output.name,
@@ -359,7 +358,6 @@ export class Orchestrator {
         try {
             const result = await handler.handler(data);
             if (result) {
-                // Use our runAutonomousFlow chain approach
                 return await this.runAutonomousFlow(result, handler.name);
             }
             return [];
@@ -454,14 +452,52 @@ export class Orchestrator {
                 // 2. Mark them as 'running' (or handle concurrency the way you want)
                 await this.scheduledTaskDb.markRunning(task._id);
 
-                // 3. Dispatch to the orchestrator
-                try {
-                    await this.dispatchToInput(task.handlerName, task.taskData);
-                } catch (error) {
-                    this.logger.error(
-                        "Task execution failed",
-                        `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
-                    );
+                const handler = this.ioHandlers.get(task.handlerName);
+                if (!handler) {
+                    throw new Error(`No handler found: ${task.handlerName}`);
+                }
+
+                const taskData =
+                    typeof task.taskData.task_data === "string"
+                        ? JSON.parse(task.taskData.task_data)
+                        : task.taskData;
+
+                if (handler.role === HandlerRole.INPUT) {
+                    try {
+                        await this.dispatchToInput(task.handlerName, taskData);
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                } else if (handler.role === HandlerRole.ACTION) {
+                    try {
+                        const actionResult = await this.dispatchToAction(
+                            task.handlerName,
+                            taskData
+                        );
+                        if (actionResult) {
+                            await this.runAutonomousFlow(
+                                actionResult,
+                                task.handlerName
+                            );
+                        }
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
+                } else if (handler.role === HandlerRole.OUTPUT) {
+                    try {
+                        await this.dispatchToOutput(task.handlerName, taskData);
+                    } catch (error) {
+                        this.logger.error(
+                            "Task execution failed",
+                            `Task ${task._id}: ${error instanceof Error ? error.message : String(error)}`
+                        );
+                    }
                 }
 
                 // 4. If the task is recurring (interval_ms), update next_run_at
@@ -489,6 +525,9 @@ export class Orchestrator {
      */
     public stop(): void {
         this.inputScheduler.stop();
+        if (this.pollIntervalId) {
+            clearInterval(this.pollIntervalId);
+        }
         this.logger.info("Orchestrator.stop", "All scheduled inputs stopped.");
     }
 }

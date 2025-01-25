@@ -284,6 +284,12 @@ export interface ProcessedResult {
     suggestedOutputs: SuggestedOutput<any>[];
     isOutputSuccess?: boolean;
     alreadyProcessed?: boolean;
+    updateTasks?: {
+        name: string;
+        data?: any;
+        confidence: number;
+        intervalMs: number;
+    }[];
 }
 
 export interface SuggestedOutput<T> {
