@@ -1,8 +1,8 @@
 import { Logger } from "./logger";
 import { RoomManager } from "./room-manager";
 import { TaskScheduler } from "./task-scheduler";
-import type { Processor } from "./processor";
-import type { VectorDB } from "./types";
+import type { BaseProcessor } from "./processor";
+import type { Memory, ProcessedResult, VectorDB } from "./types";
 import { HandlerRole, LogLevel, type LoggerConfig } from "./types";
 import type { IOHandler } from "./types";
 import type { ScheduledTaskMongoDb } from "./scheduled-db";
@@ -21,6 +21,8 @@ export class Orchestrator {
 
     private pollIntervalId?: ReturnType<typeof setInterval>;
 
+    private processors: Map<string, BaseProcessor> = new Map();
+
     /**
      * A TaskScheduler that only schedules and runs input handlers
      */
@@ -29,7 +31,6 @@ export class Orchestrator {
     >;
 
     private readonly logger: Logger;
-    private readonly processor: Processor;
 
     private readonly scheduledTaskDb: ScheduledTaskMongoDb;
 
@@ -40,12 +41,16 @@ export class Orchestrator {
     constructor(
         private readonly roomManager: RoomManager,
         vectorDb: VectorDB,
-        processor: Processor,
+        processors: BaseProcessor[],
         scheduledTaskDb: ScheduledTaskMongoDb,
         config?: LoggerConfig
     ) {
         this.vectorDb = vectorDb;
-        this.processor = processor;
+        this.processors = new Map(
+            processors.map((p) => {
+                return [p.getName(), p];
+            })
+        );
         this.scheduledTaskDb = scheduledTaskDb;
         this.logger = new Logger(
             config ?? {
@@ -79,8 +84,6 @@ export class Orchestrator {
             );
         }
         this.ioHandlers.set(handler.name, handler);
-
-        this.processor.registerIOHandler(handler);
 
         this.logger.info(
             "Orchestrator.registerIOHandler",
@@ -235,86 +238,101 @@ export class Orchestrator {
      * and handles any follow-on "action" or "output" suggestions in a chain.
      */
     private async runAutonomousFlow(initialData: unknown, sourceName: string) {
-        // We keep a queue of "items" to process
-        const queue: Array<{ data: unknown; source: string }> = [
-            { data: initialData, source: sourceName },
-        ];
+        // A queue of "things to process"
+        const queue: Array<{ data: unknown; source: string }> = [];
 
+        // If the initial data is already an array, enqueue each item
+        if (Array.isArray(initialData)) {
+            for (const item of initialData) {
+                queue.push({ data: item, source: sourceName });
+            }
+        } else {
+            queue.push({ data: initialData, source: sourceName });
+        }
+
+        // You can keep track of any "outputs" you need to return or do something with
         const outputs: Array<{ name: string; data: any }> = [];
 
+        // Keep processing while there is something in the queue
         while (queue.length > 0) {
             const { data, source } = queue.shift()!;
 
-            // 1) Ensure there's a room
-            const room = await this.roomManager.ensureRoom(source, "core");
+            // processContent now returns an array of ProcessedResult
+            const processedResults = await this.processContent(data, source);
 
-            // 2) Process with your existing processor logic
-            const processed = await this.processor.process(data, room);
-
-            // If the processor thinks we've already processed it, we skip
-            if (processed.alreadyProcessed) {
+            // If there's nothing to process further, continue
+            if (!processedResults || processedResults.length === 0) {
                 continue;
             }
 
-            // 3) Save to memory (like you do in processInputTask)
-            await this.roomManager.addMemory(
-                room.id,
-                JSON.stringify(processed.content),
-                {
-                    source,
-                    type: "input",
-                    ...processed.metadata,
-                    ...processed.enrichedContext,
-                }
-            );
-
-            if (processed.updateTasks) {
-                for (const task of processed.updateTasks) {
-                    await this.scheduleTaskInDb(
-                        task.name,
-                        task.data,
-                        task.intervalMs
-                    );
-                }
-            }
-
-            // 4) For each suggested output, see if it’s an action or an output
-            for (const output of processed.suggestedOutputs) {
-                const handler = this.ioHandlers.get(output.name);
-                if (!handler) {
-                    this.logger.warn(
-                        "No handler found for suggested output",
-                        output.name
-                    );
+            // Now handle each ProcessedResult
+            for (const processed of processedResults) {
+                // If the processor says it's already been handled, skip
+                if (processed.alreadyProcessed) {
                     continue;
                 }
 
-                if (handler.role === HandlerRole.OUTPUT) {
-                    outputs.push({ name: output.name, data: output.data });
-
-                    // Dispatch to an output handler (e.g. send a Slack message)
-                    await this.dispatchToOutput(output.name, output.data);
-                } else if (handler.role === HandlerRole.ACTION) {
-                    // Execute an action (e.g. fetch data from an API), wait for the result
-                    const actionResult = await this.dispatchToAction(
-                        output.name,
-                        output.data
-                    );
-                    // Then feed the result back into the queue, so it will be processed
-                    if (actionResult) {
-                        queue.push({
-                            data: actionResult,
-                            source: output.name, // or keep the same source, your choice
-                        });
+                // If any tasks need to be scheduled in the DB, do so
+                if (processed.updateTasks) {
+                    for (const task of processed.updateTasks) {
+                        await this.scheduleTaskInDb(
+                            task.name,
+                            task.data,
+                            task.intervalMs
+                        );
                     }
-                } else {
-                    this.logger.warn(
-                        "Suggested output has an unrecognized role",
-                        handler.role
-                    );
+                }
+
+                // For each suggested output
+                for (const output of processed.suggestedOutputs ?? []) {
+                    const handler = this.ioHandlers.get(output.name);
+                    if (!handler) {
+                        this.logger.warn(
+                            "No handler found for suggested output",
+                            output.name
+                        );
+                        continue;
+                    }
+
+                    if (handler.role === HandlerRole.OUTPUT) {
+                        // e.g. send a Slack message
+                        outputs.push({ name: output.name, data: output.data });
+                        await this.dispatchToOutput(output.name, output.data);
+                    } else if (handler.role === HandlerRole.ACTION) {
+                        // e.g. fetch data from an external API
+                        const actionResult = await this.dispatchToAction(
+                            output.name,
+                            output.data
+                        );
+                        // If the action returns new data (array or single),
+                        // feed it back into the queue to continue the flow
+                        if (actionResult) {
+                            if (Array.isArray(actionResult)) {
+                                for (const item of actionResult) {
+                                    queue.push({
+                                        data: item,
+                                        source: output.name,
+                                    });
+                                }
+                            } else {
+                                queue.push({
+                                    data: actionResult,
+                                    source: output.name,
+                                });
+                            }
+                        }
+                    } else {
+                        this.logger.warn(
+                            "Suggested output has an unrecognized role",
+                            handler.role
+                        );
+                    }
                 }
             }
         }
+
+        // If you want, you can return the final outputs array or handle it differently
+        return outputs;
     }
 
     /**
@@ -518,6 +536,124 @@ export class Orchestrator {
                 err instanceof Error ? err.message : String(err)
             );
         }
+    }
+
+    public async processContent(
+        content: any,
+        source: string
+    ): Promise<ProcessedResult[]> {
+        // If content is already an array, process each item individually
+        if (Array.isArray(content)) {
+            const allResults: ProcessedResult[] = [];
+            for (const item of content) {
+                // (Optional) Delay to throttle
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+
+                const result = await this.processContentItem(item, source);
+                if (result) {
+                    allResults.push(result);
+                }
+            }
+            return allResults;
+        }
+
+        // For single item, wrap in array
+        const singleResult = await this.processContentItem(content, source);
+        return singleResult ? [singleResult] : [];
+    }
+
+    private async processContentItem(
+        content: any,
+        source: string
+    ): Promise<ProcessedResult | null> {
+        let memories: Memory[] = [];
+
+        if (content.room) {
+            const hasProcessed =
+                await this.roomManager.hasProcessedContentInRoom(
+                    content.contentId,
+                    content.room
+                );
+
+            if (hasProcessed) {
+                this.logger.debug(
+                    "Orchestrator.processContent",
+                    "Content already processed",
+                    {
+                        contentId: content.contentId,
+                        roomId: content.room,
+                    }
+                );
+                return null;
+            }
+            const room = await this.roomManager.ensureRoom(
+                content.room,
+                source
+            );
+            memories = await this.roomManager.getMemoriesFromRoom(room.id);
+
+            this.logger.debug(
+                "Orchestrator.processContent",
+                "Processing content with context",
+                {
+                    content,
+                    source,
+                    roomId: room.id,
+                    relevantMemories: memories,
+                }
+            );
+        }
+
+        const processor = Array.from(this.processors.values()).find((p) =>
+            p.canHandle(content)
+        );
+
+        if (!processor) {
+            this.logger.debug(
+                "Orchestrator.processContent",
+                "No suitable processor found for content",
+                { content }
+            );
+            return null;
+        }
+
+        const availableOutputs = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.OUTPUT
+        );
+
+        const availableActions = Array.from(this.ioHandlers.values()).filter(
+            (h) => h.role === HandlerRole.ACTION
+        );
+
+        const result = await processor.process(
+            content,
+            JSON.stringify(memories),
+            {
+                availableOutputs,
+                availableActions,
+            }
+        );
+
+        if (content.room) {
+            // Save the result to memory
+            await this.roomManager.addMemory(
+                content.room,
+                JSON.stringify(result?.content),
+                {
+                    source,
+                    ...result?.metadata,
+                    ...result?.enrichedContext,
+                }
+            );
+
+            // Mark the content as processed
+            await this.roomManager.markContentAsProcessed(
+                content.contentId,
+                content.room
+            );
+        }
+
+        return result;
     }
 
     /**

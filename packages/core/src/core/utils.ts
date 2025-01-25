@@ -251,3 +251,111 @@ export function hashString(str: string): string {
     }
     return Math.abs(hash).toString(36); // Convert to base36 for shorter strings
 }
+
+export function getTimeContext(timestamp: Date): string {
+    const now = new Date();
+    const hoursDiff = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+
+    if (hoursDiff < 24) return "very_recent";
+    if (hoursDiff < 72) return "recent";
+    if (hoursDiff < 168) return "this_week";
+    if (hoursDiff < 720) return "this_month";
+    return "older";
+}
+
+export function generateContentId(content: any): string {
+    try {
+        // 1. Special handling for Twitter mentions/tweets array
+        if (Array.isArray(content) && content[0]?.type === "tweet") {
+            // Use the newest tweet's ID as the marker
+            const newestTweet = content[0];
+            return `tweet_batch_${newestTweet.metadata.tweetId}`;
+        }
+
+        // 2. Single tweet handling
+        if (content?.type === "tweet") {
+            return `tweet_${content.metadata.tweetId}`;
+        }
+
+        // 3. If it's a plain string, fallback to hashing the string but also add a small random/time factor.
+        //    This ensures repeated user messages with the same text won't collapse to the same ID.
+        if (typeof content === "string") {
+            // Add a short suffix: e.g. timestamp + small random
+            const suffix = `${Date.now()}_${Math.random()
+                .toString(36)
+                .slice(2, 6)}`;
+            return `content_${hashString(content)}_${suffix}`;
+        }
+
+        // 4. For arrays (non-tweets), attempt to find known IDs or hash the items
+        if (Array.isArray(content)) {
+            const ids = content.map((item) => {
+                // Check if there's an explicit .id
+                if (item.id) return item.id;
+                // Check for item.metadata?.id
+                if (item.metadata?.id) return item.metadata.id;
+
+                // Otherwise, hash the item
+                const relevantData = {
+                    content: item.content || item,
+                    type: item.type,
+                };
+                return hashString(JSON.stringify(relevantData));
+            });
+
+            // Join them, but also add a short suffix so different array orders don't collide
+            const suffix = `${Date.now()}_${Math.random()
+                .toString(36)
+                .slice(2, 6)}`;
+            return `array_${ids.join("_").slice(0, 100)}_${suffix}`;
+        }
+
+        // 5. For single objects, check .id first
+        if (content.id) {
+            return `obj_${content.id}`;
+        }
+
+        // 6. Special handling for "internal_thought" or "consciousness"
+        if (
+            content.type === "internal_thought" ||
+            content.source === "consciousness"
+        ) {
+            const thoughtData = {
+                content: content.content,
+                timestamp: content.timestamp,
+            };
+            return `thought_${hashString(JSON.stringify(thoughtData))}`;
+        }
+
+        // 7. Then check if there's a metadata.id
+        if (content.metadata?.id) {
+            return `obj_${content.metadata.id}`;
+        }
+
+        // 8. Or any metadata key ending with 'id'
+        if (content.metadata) {
+            for (const [key, value] of Object.entries(content.metadata)) {
+                if (key.toLowerCase().endsWith("id") && value) {
+                    return `obj_${value}`;
+                }
+            }
+        }
+
+        // 9. Finally, fallback to hashing the object,
+        //    but add a random/time suffix so repeated content isn't auto-deduplicated.
+        const relevantData = {
+            content: content.content || content,
+            type: content.type,
+            // Include source if available
+            ...(content.source &&
+                content.source !== "consciousness" && {
+                    source: content.source,
+                }),
+        };
+        const baseHash = hashString(JSON.stringify(relevantData));
+        const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        return `obj_${baseHash}_${suffix}`;
+    } catch (error) {
+        return `fallback_${Date.now()}`;
+    }
+}

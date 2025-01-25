@@ -225,4 +225,78 @@ export class RoomManager {
         await this.vectorDb.deleteRoom(roomId);
         this.logger.info("RoomManager.deleteRoom", "Room deleted", { roomId });
     }
+
+    public async getMemoriesFromRoom(
+        roomId: string,
+        limit?: number
+    ): Promise<Memory[]> {
+        if (!this.vectorDb) {
+            throw new Error("VectorDB required for getting memories");
+        }
+
+        const room = await this.getRoom(roomId);
+        if (!room) {
+            throw new Error(`Room ${roomId} not found`);
+        }
+
+        const memories = await this.vectorDb.getMemoriesFromRoom(roomId, limit);
+
+        return memories.map((memory) => ({
+            id: memory.metadata?.memoryId,
+            roomId: roomId,
+            content: memory.content,
+            timestamp: new Date(memory.metadata?.timestamp),
+            metadata: memory.metadata,
+        }));
+    }
+
+    public async hasProcessedContentInRoom(
+        contentId: string,
+        roomId: string
+    ): Promise<boolean> {
+        if (!this.vectorDb) {
+            throw new Error("VectorDB required for getting memories");
+        }
+
+        const room = await this.getRoom(roomId);
+        if (!room) {
+            this.logger.error(
+                "RoomManager.markContentAsProcessed",
+                "Room not found",
+                {
+                    roomId,
+                }
+            );
+            return false;
+        }
+
+        return await this.vectorDb.hasProcessedContent(contentId, room);
+    }
+
+    public async markContentAsProcessed(
+        contentId: string,
+        roomId: string
+    ): Promise<boolean> {
+        if (!this.vectorDb) {
+            throw new Error(
+                "VectorDB required for marking content as processed"
+            );
+        }
+
+        const room = await this.getRoom(roomId);
+
+        if (!room) {
+            this.logger.error(
+                "RoomManager.markContentAsProcessed",
+                "Room not found",
+                {
+                    roomId,
+                }
+            );
+            return false;
+        }
+
+        await this.vectorDb.markContentAsProcessed(contentId, room);
+        return true;
+    }
 }

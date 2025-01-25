@@ -255,7 +255,7 @@ export class ChromaVectorDB implements VectorDB {
                 description: "Room-specific memory storage",
                 roomId,
                 platform: roomId.split("_")[0],
-                platformId: roomId.split("_")[1],
+                platformId: roomId.split("_")[0] + "_platform", // TODO: This is a hack to get the platform ID
                 created: new Date().toISOString(),
                 lastActive: new Date().toISOString(),
             },
@@ -1591,7 +1591,7 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     // Check if we've already processed this content
-    private async hasProcessedContent(
+    public async hasProcessedContent(
         contentId: string,
         room: Room
     ): Promise<boolean> {
@@ -1625,7 +1625,7 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     // Mark content as processed
-    private async markContentAsProcessed(
+    public async markContentAsProcessed(
         contentId: string,
         room: Room
     ): Promise<void> {
@@ -1663,6 +1663,44 @@ export class ChromaVectorDB implements VectorDB {
                         error instanceof Error ? error.message : String(error),
                     contentId,
                     roomId: room.id,
+                }
+            );
+            throw error;
+        }
+    }
+
+    /**
+     * Gets all memories from a specific room's collection, optionally limited to a certain number
+     */
+    public async getMemoriesFromRoom(
+        roomId: string,
+        limit?: number
+    ): Promise<{ content: string; metadata?: Record<string, any> }[]> {
+        try {
+            const collection = await this.getCollectionForRoom(roomId);
+
+            // Get all documents from the collection, with optional limit
+            const results = await collection.get({
+                limit,
+                include: ["documents", "metadatas"] as IncludeEnum[],
+            });
+
+            if (!results.ids.length) {
+                return [];
+            }
+
+            return results.ids.map((_, idx) => ({
+                content: results.documents[idx] || "",
+                metadata: results.metadatas?.[idx] || {},
+            }));
+        } catch (error) {
+            this.logger.error(
+                "ChromaVectorDB.getMemoriesFromRoom",
+                "Failed to get memories",
+                {
+                    error:
+                        error instanceof Error ? error.message : String(error),
+                    roomId,
                 }
             );
             throw error;
