@@ -249,4 +249,54 @@ export class RoomManager {
             metadata: memory.metadata,
         }));
     }
+
+    public async hasProcessedContentInRoom(
+        contentId: string,
+        roomId: string
+    ): Promise<boolean> {
+        if (!this.vectorDb) {
+            throw new Error("VectorDB required for getting memories");
+        }
+
+        const room = await this.getRoom(roomId);
+        if (!room) {
+            this.logger.error(
+                "RoomManager.markContentAsProcessed",
+                "Room not found",
+                {
+                    roomId,
+                }
+            );
+            return false;
+        }
+
+        return await this.vectorDb.hasProcessedContent(contentId, room);
+    }
+
+    public async markContentAsProcessed(
+        contentId: string,
+        roomId: string
+    ): Promise<boolean> {
+        if (!this.vectorDb) {
+            throw new Error(
+                "VectorDB required for marking content as processed"
+            );
+        }
+
+        const room = await this.getRoom(roomId);
+
+        if (!room) {
+            this.logger.error(
+                "RoomManager.markContentAsProcessed",
+                "Room not found",
+                {
+                    roomId,
+                }
+            );
+            return false;
+        }
+
+        await this.vectorDb.markContentAsProcessed(contentId, room);
+        return true;
+    }
 }

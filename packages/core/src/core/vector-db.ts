@@ -255,7 +255,7 @@ export class ChromaVectorDB implements VectorDB {
                 description: "Room-specific memory storage",
                 roomId,
                 platform: roomId.split("_")[0],
-                platformId: roomId.split("_")[1],
+                platformId: roomId.split("_")[0] + "_platform", // TODO: This is a hack to get the platform ID
                 created: new Date().toISOString(),
                 lastActive: new Date().toISOString(),
             },
@@ -1591,7 +1591,7 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     // Check if we've already processed this content
-    private async hasProcessedContent(
+    public async hasProcessedContent(
         contentId: string,
         room: Room
     ): Promise<boolean> {
@@ -1625,7 +1625,7 @@ export class ChromaVectorDB implements VectorDB {
     }
 
     // Mark content as processed
-    private async markContentAsProcessed(
+    public async markContentAsProcessed(
         contentId: string,
         room: Room
     ): Promise<void> {

@@ -11,7 +11,7 @@ import { Orchestrator } from "../packages/core/src/core/orchestrator";
 import { HandlerRole } from "../packages/core/src/core/types";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
-import { MessageProcessor } from "../packages/core/src/core/processor";
+import { MessageProcessor } from "../packages/core/src/core/processors/message-processor";
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { LogLevel } from "../packages/core/src/core/types";
 import chalk from "chalk";

@@ -12,7 +12,7 @@ import { HandlerRole } from "../packages/core/src/core/types";
 import { TwitterClient } from "../packages/core/src/core/io/twitter";
 import { RoomManager } from "../packages/core/src/core/room-manager";
 import { ChromaVectorDB } from "../packages/core/src/core/vector-db";
-import { MessageProcessor } from "../packages/core/src/core/processor";
+import { MessageProcessor } from "../packages/core/src/core/processors/message-processor";
 import { LLMClient } from "../packages/core/src/core/llm-client";
 import { env } from "../packages/core/src/core/env";
 import { LogLevel } from "../packages/core/src/core/types";
@@ -106,7 +106,7 @@ async function main() {
             return mentions.map((mention) => ({
                 type: "tweet",
                 room: mention.metadata.conversationId,
-                messageId: mention.metadata.tweetId,
+                contentId: mention.metadata.tweetId,
                 user: mention.metadata.username,
                 content: mention.content,
                 metadata: mention,
